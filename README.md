@@ -7,6 +7,10 @@ you.
 Talk to your repo in plain English. TheGitAI can keep long-running processes
 under your approval while you work.
 
+![TheGitAI finding and fixing a failing test in a real repository](https://thegit.ai/demo.gif)
+
+*A real session: a failing test, traced to its cause, fixed, and verified.*
+
 ## Install
 
 ```bash
