@@ -1,0 +1,20 @@
+{
+  "name": "thegitai-tui",
+  "version": "0.1.0",
+  "description": "Ratatui terminal renderer for TheGitAI",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "prepare": "npm run build"
+  },
+  "files": [
+    "index.js",
+    "scripts/build.mjs",
+    "bin"
+  ]
+}

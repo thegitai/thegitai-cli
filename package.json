@@ -1,0 +1,17 @@
+{
+  "name": "thegitai-cli-source",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/source-visible-customer-cli",
+    "packages/thegitai-tui"
+  ],
+  "engines": {
+    "node": ">=24.14.1 <25"
+  },
+  "scripts": {
+    "typecheck": "npm --prefix packages/source-visible-customer-cli run typecheck",
+    "build": "npm --prefix packages/source-visible-customer-cli run build",
+    "test": "npm run typecheck && npm run build"
+  }
+}

@@ -1,0 +1,29 @@
+TheGitAI CLI Source - Source-Visible Proprietary License
+
+Copyright (c) 2026 Atlast Technologies / TheGitAI
+
+This source code is made available for inspection and trust verification only.
+It is not open source, and no open-source license is granted.
+
+Subject to the TheGitAI Terms of Service at https://thegit.ai/terms, you may
+read this source to understand the local client behavior. The following rights
+are not granted:
+
+- Copying or redistribution of this code, in whole or in part
+- Commercial use, resale, or use as a hosted service
+- Running TheGitAI as a standalone cloned product
+- Derivative works or modifications for distribution
+- Sublicensing
+
+GitHub may technically allow viewing, cloning, downloading, or forking public
+repositories. Those platform mechanics do not grant any license beyond
+inspection and trust verification under these terms.
+
+Security notice: this client is untrusted for enforcement purposes. All
+authentication, authorization, entitlement, quota, and security-sensitive
+decisions are enforced server-side. Server enforcement is authoritative
+regardless of any client-side values.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY ARISING FROM THE USE OF THIS SOFTWARE.

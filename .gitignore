@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+.idea/
+.vscode/
+.DS_Store
+
+packages/source-visible-customer-cli/dist/
+packages/source-visible-customer-cli/node_modules/
+packages/source-visible-customer-cli/bin/thegitai-tui
+packages/source-visible-customer-cli/*.tgz
+
+packages/thegitai-tui/bin/
+packages/thegitai-tui/target/
+packages/thegitai-tui/npm/

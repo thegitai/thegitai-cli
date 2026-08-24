@@ -1,0 +1,58 @@
+{
+  "name": "@thegitai/cli",
+  "version": "1.0.0-preview.29",
+  "description": "TheGitAI is an AI coding agent for your terminal. It reads and searches your repository, writes and edits files, runs commands, and builds features with you.",
+  "keywords": [
+    "ai",
+    "ai-coding-agent",
+    "coding-agent",
+    "coding-assistant",
+    "terminal",
+    "cli",
+    "developer-tools"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://thegit.ai",
+  "bugs": {
+    "email": "support@thegit.ai"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "ai": "./dist/bin/ai.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "prebuild": "node ./scripts/clean-dist.mjs && node ./scripts/copy-tui-binary.mjs",
+    "build": "tsc -p tsconfig.build.json && node ./scripts/copy-parsers.mjs && node ./scripts/copy-vendor.mjs && node ./scripts/ensure-bin-executable.mjs dist/bin/ai.js",
+    "prepare": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "dependencies": {},
+  "optionalDependencies": {
+    "@lydell/node-pty": "1.1.0",
+    "@lydell/node-pty-darwin-arm64": "1.1.0",
+    "@lydell/node-pty-darwin-x64": "1.1.0",
+    "@lydell/node-pty-linux-arm64": "1.1.0",
+    "@lydell/node-pty-linux-x64": "1.1.0",
+    "@lydell/node-pty-win32-arm64": "1.1.0",
+    "@lydell/node-pty-win32-x64": "1.1.0",
+    "@thegitai/tui-darwin-arm64": "1.0.0-preview.29",
+    "@thegitai/tui-darwin-x64": "1.0.0-preview.29",
+    "@thegitai/tui-linux-x64": "1.0.0-preview.29",
+    "@thegitai/tui-win32-x64": "1.0.0-preview.29",
+    "@vscode/ripgrep": "1.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2",
+    "web-tree-sitter": "^0.26.6"
+  }
+}
