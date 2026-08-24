@@ -1,12 +1,18 @@
 {
   "name": "@thegitai/cli",
-  "version": "1.0.0-preview.29",
-  "description": "TheGitAI is an AI coding agent for your terminal. It reads and searches your repository, writes and edits files, runs commands, and builds features with you.",
+  "version": "1.0.0-preview.30",
+  "description": "TheGitAI is an agentic AI coding tool for your terminal. It reads and searches your repository, writes and edits files, runs your tests, and verifies the change before handing it back.",
   "keywords": [
-    "ai",
+    "agentic-ai",
     "ai-coding-agent",
     "coding-agent",
+    "ai-agent",
+    "agentic-coding",
+    "autonomous-agent",
+    "ai-pair-programming",
     "coding-assistant",
+    "code-assistant",
+    "ai",
     "terminal",
     "cli",
     "developer-tools"
@@ -14,6 +20,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "homepage": "https://thegit.ai",
   "bugs": {
+    "url": "https://github.com/thegitai/thegitai-cli/issues",
     "email": "support@thegit.ai"
   },
   "type": "module",
@@ -44,15 +51,19 @@
     "@lydell/node-pty-linux-x64": "1.1.0",
     "@lydell/node-pty-win32-arm64": "1.1.0",
     "@lydell/node-pty-win32-x64": "1.1.0",
-    "@thegitai/tui-darwin-arm64": "1.0.0-preview.29",
-    "@thegitai/tui-darwin-x64": "1.0.0-preview.29",
-    "@thegitai/tui-linux-x64": "1.0.0-preview.29",
-    "@thegitai/tui-win32-x64": "1.0.0-preview.29",
+    "@thegitai/tui-darwin-arm64": "1.0.0-preview.30",
+    "@thegitai/tui-darwin-x64": "1.0.0-preview.30",
+    "@thegitai/tui-linux-x64": "1.0.0-preview.30",
+    "@thegitai/tui-win32-x64": "1.0.0-preview.30",
     "@vscode/ripgrep": "1.18.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "typescript": "^6.0.2",
     "web-tree-sitter": "^0.26.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thegitai/thegitai-cli.git"
   }
 }
