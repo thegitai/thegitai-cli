@@ -1,7 +1,8 @@
 # TheGitAI — AI coding agent for your terminal
 
-TheGitAI is an AI coding agent for your terminal. It indexes your repository,
-writes and edits files, runs commands, and builds features with you.
+TheGitAI is an agentic AI coding tool for your terminal. It reads and searches
+your repository, writes and edits files, runs commands, and builds features with
+you.
 
 Talk to your repo in plain English. TheGitAI can keep long-running processes
 under your approval while you work.
