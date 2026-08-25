@@ -420,6 +420,7 @@ const CLIENT_SLASH_COMMANDS: SlashCommandOption[] = [
   { command: '/model', description: 'Switch the active model' },
   { command: '/resume', description: 'Open the session picker to resume a previous session' },
   { command: '/jobs', description: 'Background jobs: pick to view output or kill' },
+  { command: '/report', description: 'Report a bug: opens the public GitHub issue form' },
   { command: '/new', description: 'start a new conversation; this session remains saved' },
   { command: '/logout', description: 'Sign out and quit' },
   { command: '/exit', description: 'Quit the current session' },

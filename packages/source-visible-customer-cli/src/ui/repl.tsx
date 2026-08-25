@@ -370,6 +370,42 @@ const THINKING_NOTE_PREVIEW_ROWS = 3;
 const WORKING_TOOL_PREVIEW_ROWS = 3;
 const AGENT_MODE_LABEL_WIDTH = 16;
 
+export const REPORT_ISSUE_URL =
+  'https://github.com/thegitai/thegitai-cli/issues/new';
+
+export function buildReportTranscriptEntries(
+  openedUrl: boolean,
+): TranscriptEntryDraft[] {
+  return openedUrl
+    ? [
+        {
+          body: `Opening the public GitHub issue form in your browser. If nothing opened, visit:\n\n${REPORT_ISSUE_URL}\n\nThe tracker is public — do not paste secrets or code you may not share.`,
+          kind: 'system',
+          title: 'Report',
+        },
+      ]
+    : [
+        {
+          body: `Could not open a browser. Report the bug manually at:\n\n${REPORT_ISSUE_URL}\n`,
+          kind: 'error',
+          title: 'Report',
+        },
+      ];
+}
+
+export function buildTurnFailureHintEntries(
+  cancelled: boolean,
+): TranscriptEntryDraft[] {
+  if (cancelled) return [];
+  return [
+    {
+      body: 'Something went wrong? Use /report to submit the issue.',
+      kind: 'error',
+      title: 'Report',
+    },
+  ];
+}
+
 export const SLASH_COMMANDS: SlashCommandOption[] = [
   {
     command: '/help',
@@ -378,6 +414,10 @@ export const SLASH_COMMANDS: SlashCommandOption[] = [
   {
     command: '/about',
     description: 'Show version and platform info',
+  },
+  {
+    command: '/report',
+    description: 'Report a bug: opens the public GitHub issue form',
   },
   {
     command: '/usage',
@@ -3228,6 +3268,12 @@ export async function runClientInteractive({
         return;
       }
 
+      if (input === '/report') {
+        const opened = await openUrl(REPORT_ISSUE_URL);
+        appendStaticEntries(buildReportTranscriptEntries(opened));
+        return;
+      }
+
       if (input === '/jobs' || input.startsWith('/jobs ')) {
         const jobsArgs = input.slice('/jobs'.length).trim();
         if (!jobsArgs) {
@@ -3614,6 +3660,7 @@ export async function runClientInteractive({
         } else {
           appendStaticEntries(turnEntries);
           appendError(error.message);
+          appendStaticEntries(buildTurnFailureHintEntries(cancelled));
         }
         await remountTui();
         // A cancelled turn never auto-submits the queue (Ctrl+C recalls it via
