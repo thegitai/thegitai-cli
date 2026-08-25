@@ -1,6 +1,6 @@
 {
   "name": "@thegitai/cli",
-  "version": "1.0.0-preview.30",
+  "version": "1.0.0-preview.32",
   "description": "TheGitAI is an agentic AI coding tool for your terminal. It reads and searches your repository, writes and edits files, runs your tests, and verifies the change before handing it back.",
   "keywords": [
     "agentic-ai",
@@ -25,7 +25,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=22"
   },
   "bin": {
     "ai": "./dist/bin/ai.js"
@@ -51,10 +51,10 @@
     "@lydell/node-pty-linux-x64": "1.1.0",
     "@lydell/node-pty-win32-arm64": "1.1.0",
     "@lydell/node-pty-win32-x64": "1.1.0",
-    "@thegitai/tui-darwin-arm64": "1.0.0-preview.30",
-    "@thegitai/tui-darwin-x64": "1.0.0-preview.30",
-    "@thegitai/tui-linux-x64": "1.0.0-preview.30",
-    "@thegitai/tui-win32-x64": "1.0.0-preview.30",
+    "@thegitai/tui-darwin-arm64": "1.0.0-preview.32",
+    "@thegitai/tui-darwin-x64": "1.0.0-preview.32",
+    "@thegitai/tui-linux-x64": "1.0.0-preview.32",
+    "@thegitai/tui-win32-x64": "1.0.0-preview.32",
     "@vscode/ripgrep": "1.18.0"
   },
   "devDependencies": {

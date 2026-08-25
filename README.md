@@ -17,7 +17,7 @@ under your approval while you work.
 npm i -g @thegitai/cli
 ```
 
-Requires Node.js 24 or newer.
+Supports Node.js 22 and newer. Node.js 24 is recommended.
 
 ## Start
 

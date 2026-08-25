@@ -95,6 +95,8 @@ const HELP_MARKDOWN = [
   '',
   '- `/help` — show this help',
   '- `/about` — show version and platform info',
+  '- `/report` — file a bug: opens the public GitHub issue form in your',
+  '  browser (the tracker is public — do not paste secrets)',
   '- `/usage` — show account usage percentage and reset times',
   '- `/model` — list supported models and pick one',
   '- `/model <id>` — switch the active model without clearing history',
@@ -157,8 +159,8 @@ const HELP_MARKDOWN = [
   '  computer" on that page, and paste the code back into the terminal.',
   '- A local session was used with a different sign-in → sign in with the',
   '  account you used for that session or start a new session.',
-  '- For anything else, re-run the command and report the printed error',
-  '  message — there is no client-side debug mode by design.',
+  '- For anything else, re-run the command and file the printed error',
+  '  message with `/report` — there is no client-side debug mode by design.',
 ].join('\n');
 
 export function formatAboutCard(): string {
