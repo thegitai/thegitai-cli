@@ -1,0 +1,13 @@
+web-tree-sitter
+===============
+
+The files `web-tree-sitter.cjs` and `web-tree-sitter.wasm` in this directory are
+vendored, unmodified, from the `web-tree-sitter` npm package, version 0.26.6.
+
+They are bundled here (rather than installed as a runtime dependency) so the
+published `@thegitai/cli` package declares zero runtime dependencies while still
+shipping local tree-sitter code intelligence. They are used only as a local
+parsing runtime; no part of web-tree-sitter is modified.
+
+Upstream: https://github.com/tree-sitter/tree-sitter
+License:  MIT (see the adjacent LICENSE file)

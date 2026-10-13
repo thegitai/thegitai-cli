@@ -1,0 +1,18 @@
+Tree-sitter grammar parsers
+===========================
+
+The `tree-sitter-*.wasm` files in this directory are precompiled tree-sitter
+grammar parsers, vendored so the published `@thegitai/cli` package ships local
+code intelligence without a runtime dependency. They are used unmodified, only
+as parsing inputs to the vendored web-tree-sitter runtime
+(see ../vendor/web-tree-sitter/NOTICE).
+
+Each grammar is the work of its respective tree-sitter grammar project and is
+distributed under that project's license (the tree-sitter grammars are
+MIT-licensed). Grammars included:
+
+  c, c-sharp, cpp, css, go, html, java, javascript, objc, php, python, ruby,
+  rust, tsx, typescript
+
+Upstream organization: https://github.com/tree-sitter
+Individual grammars:    https://github.com/tree-sitter/tree-sitter-<language>
