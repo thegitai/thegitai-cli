@@ -87,7 +87,7 @@ export async function runSignIn({
     onUrl: (url) => log(formatSignInScreen({ url })),
     onBrowserOpen: (opened) => {
       if (!opened) {
-        log(chalk.dim('  (no browser opened — use the URL or the code box above)'));
+        log(chalk.dim('  (no browser opened - use the URL or the code box above)'));
       }
     },
     promptCode: promptForCode,

@@ -1,7 +1,7 @@
 import { sessionMcp } from '../mcp-client.js';
 import { projectModelEffort, readProjectModelEfforts, saveProjectModelEffort, type ProjectModelEfforts } from '../project-model-preferences.js';
 import { REASONING_EFFORT_LABELS, type ReasoningEffort } from '../reasoning-effort.js';
-import { basename } from 'node:path';
+import { basename, join as joinPath } from 'node:path';
 
 import { createRatatuiBridge } from './tui/bridge.js';
 import {
@@ -42,10 +42,26 @@ import {
 import {
   getInputCommandToken,
   getSlashCommandSuggestions,
+  isSkillSlashCommand,
+  setSkillSlashCommands,
   SLASH_COMMANDS,
   slashCommandMatchesToken,
   type SlashCommandOption,
 } from './slash-commands.js';
+import { buildSkillsPickerItems, SKILLS_ADD_USAGE, type SkillsPickerItem } from '../skills-command.js';
+import {
+  discoverSkills,
+  personalSkillsRoot,
+  projectSkillsRoot,
+  skillCatalogue,
+} from '../skills/discovery.js';
+import {
+  installPreparedSkill,
+  parseSkillSource,
+  prepareSkillInstall,
+  preparedSkillHasScripts,
+} from '../skills/install.js';
+import { BUNDLED_SKILLS } from '../skills/types.js';
 
 export {
   getInputCommandToken,
@@ -89,7 +105,8 @@ import {
   authenticationErrorMessage,
   isAuthenticationError,
 } from '../api/http.js';
-import { buildQuotaNotice } from '../quota-notice.js';
+import { buildRefusalNotice } from '../quota-notice.js';
+import { createUsageNoticeTracker } from '../usage-notice.js';
 import type {
   ChatUsageSummary,
   UserInputQuestion,
@@ -104,6 +121,7 @@ import type {
   ServerModelInfo,
   ServerModelsResponse,
 } from '../api/models.js';
+import type { ModelLock } from '../api/contracts.js';
 import type { ServerSessionClient } from '../api/sessions.js';
 import { setCommandOutputHook, withTuiMode } from '../runtime-mode.js';
 import {
@@ -287,6 +305,7 @@ interface ModelPickerOption {
   costRating: number;
   current: boolean;
   disabled: boolean;
+  group: 'auto' | 'models';
   id: number;
   label: string;
   note: string;
@@ -336,6 +355,9 @@ interface ShellState {
   modelPickerEfforts?: ProjectModelEfforts;
   reasoningEffort: ReasoningEffort;
   shortcutsOpen: boolean;
+  skillsPickerIndex: number;
+  skillsPickerItems: SkillsPickerItem[];
+  skillsPickerOpen: boolean;
   transientStatus: string | null;
   projectRoot: string;
   sessionId: string;
@@ -350,6 +372,8 @@ interface ShellState {
   serverModels: ServerModelInfo[];
   queuedMessage: QueuedMessage | null;
   recoveryStatus?: string;
+  usageNotice?: TranscriptEntryDraft | null;
+  plan?: 'free' | 'plus' | 'pro';
 
 
 
@@ -392,6 +416,7 @@ export interface ClientInteractiveOptions {
   debugUi: {
     showSessionId: boolean;
   };
+  plan?: 'free' | 'plus' | 'pro';
   serverModels: ServerModelsResponse;
   serverSessionClient: ServerSessionClient;
   session: SessionState;
@@ -1180,6 +1205,15 @@ export function buildWorkingToolEntry(event: ToolTranscriptEvent, label = event.
     };
   }
 
+  if (call.name === 'use_skill') {
+    const name = String(result?.name ?? call.args?.name ?? '').trim().replace(/^\//, '');
+    return {
+      body: `/${name || 'skill'}${state(result?.alreadyLoaded === true ? ' · already loaded' : ' · loaded')}`,
+      kind,
+      title: 'Skill',
+    };
+  }
+
   if (call.name === 'run_node_script') {
     return {
       body: `node --input-type=module <script via stdin>${state(`\n${formatRunCommandResultState(result)}`)}${error}`,
@@ -1421,13 +1455,18 @@ export function closedJobsPickerFields(
   };
 }
 
-function createShellStore(initialState: ShellState): ShellStore {
+export function createShellStore(initialState: ShellState): ShellStore {
   let state = initialState;
   let nextEntryId = 1;
   const listeners = new Set<() => void>();
 
   const notify = () => {
     for (const listener of listeners) listener();
+  };
+
+  const setState = (nextState: ShellState) => {
+    state = nextState.busy ? nextState : { ...nextState, usageNotice: null };
+    notify();
   };
 
   return {
@@ -1438,14 +1477,8 @@ function createShellStore(initialState: ShellState): ShellStore {
         listeners.delete(listener);
       };
     },
-    setState: (nextState) => {
-      state = nextState;
-      notify();
-    },
-    update: (updater) => {
-      state = updater(state);
-      notify();
-    },
+    setState,
+    update: (updater) => setState(updater(state)),
     appendEntry: (entry) => {
       const id = nextEntryId++;
       state = {
@@ -1566,6 +1599,9 @@ function createInitialShellState(
     modelPickerIndex: getDefaultModelPickerIndex(session.modelId, serverModels.models),
     modelPickerOpen: false,
     shortcutsOpen: false,
+    skillsPickerIndex: 0,
+    skillsPickerItems: [],
+    skillsPickerOpen: false,
     transientStatus: null,
     projectRoot: session.rootDir,
     sessionId: session.sessionId,
@@ -1809,15 +1845,17 @@ export function applySlashCommandSuggestion(
   suggestion: SlashCommandOption,
 ): Pick<ShellState, 'cursor' | 'input'> {
   const token = getInputCommandToken(currentInput);
+  const command = isSkillSlashCommand(suggestion) ? `${suggestion.command} ` : suggestion.command;
   if (!token) {
-    return { cursor: suggestion.command.length, input: suggestion.command };
+    return { cursor: command.length, input: command };
   }
   const tokenStart = currentInput.indexOf(token);
   const before = currentInput.slice(0, tokenStart);
   const after = currentInput.slice(tokenStart + token.length);
+  const inserted = after.startsWith(' ') ? suggestion.command : command;
   return {
-    cursor: before.length + suggestion.command.length,
-    input: `${before}${suggestion.command}${after}`,
+    cursor: before.length + inserted.length,
+    input: `${before}${inserted}${after}`,
   };
 }
 
@@ -1967,15 +2005,59 @@ export function buildModelPickerOptions(
   currentModelId: number,
   serverModels: ServerModelInfo[],
 ): ModelPickerOption[] {
-  return serverModels.map((model) => ({
+  const listed = serverModels.filter((model) => model.locked !== 'auto-only');
+  return [
+    ...listed.filter((model) => model.auto),
+    ...listed.filter((model) => !model.auto),
+  ].map((model) => ({
     id: model.id,
-    label: model.label,
+    label: model.auto ? autoOptionLabel(model.label) : model.label,
     publicId: model.id,
     costRating: model.costRating,
     current: model.id === currentModelId,
-    disabled: false,
-    note: model.description,
+    disabled: Boolean(model.locked),
+    group: model.auto ? 'auto' : 'models',
+    note: model.locked ? MODEL_LOCK_NOTES[model.locked] : model.description,
   }));
+}
+
+export function pausedModelCount(serverModels: ServerModelInfo[]): number {
+  return serverModels.filter((model) => model.locked === 'auto-only').length;
+}
+
+export async function modelsForSwitch(
+  requestedModelId: number,
+  cached: ServerModelsResponse,
+  refresh: () => Promise<ServerModelsResponse>,
+): Promise<ServerModelsResponse> {
+  try {
+    return await refresh();
+  } catch (error) {
+    if (cached.models.some((model) => model.id === requestedModelId)) return cached;
+    throw error;
+  }
+}
+
+export const PAUSED_MODELS_NOTE = 'Named models return when your plan renews.';
+
+function autoOptionLabel(label: string): string {
+  return /^Auto \((.+)\)$/.exec(label)?.[1] ?? label;
+}
+
+const MODEL_LOCK_NOTES: Record<ModelLock, string> = {
+  plan: 'Needs a Plus or Pro plan',
+  'auto-only': 'Auto options only until your plan renews',
+};
+
+export function modelLockMessage(model: Pick<ServerModelInfo, 'label' | 'locked'>): string {
+  if (model.locked === 'auto-only') {
+    return `Only Auto options run until your plan renews. Pick one of them instead of ${pickerLabel(model.label)}.`;
+  }
+  return `${pickerLabel(model.label)} needs a Plus or Pro plan.`;
+}
+
+function pickerLabel(label: string): string {
+  return label.replace(/\s*\([^)]*\)\s*$/, '');
 }
 
 function getDefaultModelPickerIndex(
@@ -2027,6 +2109,7 @@ export async function runClientInteractive({
   appendPromptHistory,
   authConfig,
   debugUi,
+  plan,
   serverModels,
   serverSessionClient,
   session,
@@ -2047,9 +2130,10 @@ export async function runClientInteractive({
     setScratchSession(session.sessionId);
     setImageStoreSession(session.sessionId);
     setTodoSession(session.sessionId);
-    const store = createShellStore(
-      createInitialShellState(session, serverModels, debugUi, authConfig.serverUrl),
-    );
+    const store = createShellStore({
+      ...createInitialShellState(session, serverModels, debugUi, authConfig.serverUrl),
+      plan,
+    });
     store.replaceTranscript(createSessionTranscript(session));
     let currentServerModels = serverModels;
     let sessionAutoYes = session.autoYes;
@@ -2083,6 +2167,7 @@ export async function runClientInteractive({
     let tuiReady = false;
     let lastTurnStartedAt: number | null = null;
     let latestUsageSummary: ChatUsageSummary | null = null;
+    const usageNotice = createUsageNoticeTracker();
     let pendingTurnEntries: TranscriptEntryDraft[] = [];
     let activeTurnAbort: AbortController | null = null;
 
@@ -2229,7 +2314,7 @@ export async function runClientInteractive({
               body:
                 kind === 'blocked'
                   ? 'Waiting for your answer'
-                  : 'Finished \u2014 your turn',
+                  : 'Finished - your turn',
             },
             notificationHandle,
           );
@@ -2893,11 +2978,10 @@ export async function runClientInteractive({
     };
 
     const switchToModel = async (modelId: string | number, effort?: ReasoningEffort): Promise<void> => {
-      const requested = Number(modelId);
-      const fresh = currentServerModels.models.some((model) => model.id === requested)
-        ? currentServerModels
-        : await refreshServerModels();
+      const fresh = await modelsForSwitch(Number(modelId), currentServerModels, refreshServerModels);
       const selected = models.validateServerModel(modelId, fresh);
+      const lockedModel = fresh.models.find((model) => model.id === selected && model.locked);
+      if (lockedModel) throw new Error(modelLockMessage(lockedModel));
       if (effort !== undefined) {
         saveProjectModelEffort(session.rootDir, selected, effort, authConfig.serverUrl, session.env);
       }
@@ -2910,7 +2994,9 @@ export async function runClientInteractive({
       if (!(await saveActiveSession())) return;
       syncShellStateFromSession();
       appendStaticEntry({
-        body: `${formatModelLabel(selected, fresh.models)} · ${REASONING_EFFORT_LABELS[store.getState().reasoningEffort]} effort${effort === undefined ? '' : '\nSaved for this model in this project.'}`,
+        body: fresh.models.some((model) => model.id === selected && model.auto)
+          ? formatModelLabel(selected, fresh.models)
+          : `${formatModelLabel(selected, fresh.models)} · ${REASONING_EFFORT_LABELS[store.getState().reasoningEffort]} effort${effort === undefined ? '' : '\nSaved for this model in this project.'}`,
         kind: 'system',
         title: 'Model',
       });
@@ -2972,7 +3058,7 @@ export async function runClientInteractive({
         body: `${dropped}${buffered.output || '(no output captured)'}`,
         kind: 'system',
         preformatted: true,
-        title: `${job.id} output — ${truncate(job.command, 80)}`,
+        title: `${job.id} output - ${truncate(job.command, 80)}`,
       });
     };
 
@@ -3070,6 +3156,13 @@ export async function runClientInteractive({
         Math.max(options.length - 1, 0),
       );
       const selected = options[selectedIndex];
+      const lockedModel = selected?.disabled
+        ? current.serverModels.find((model) => model.id === selected.id)
+        : undefined;
+      if (lockedModel) {
+        showTransientStatus(modelLockMessage(lockedModel));
+        return;
+      }
       store.update((next) => ({
         ...next,
         modelPickerOpen: false,
@@ -3195,7 +3288,7 @@ export async function runClientInteractive({
           ...(fellBack
             ? [
                 {
-                  body: `This session's model is no longer available — switched to ${formatModelLabel(resolvedModelId, knownModels.models)}. Conversation history preserved.`,
+                  body: `This session's model is no longer available - switched to ${formatModelLabel(resolvedModelId, knownModels.models)}. Conversation history preserved.`,
                   kind: 'system' as const,
                   title: 'Model',
                 },
@@ -3268,8 +3361,8 @@ export async function runClientInteractive({
 
 
           note: autoSubmits
-            ? 'not read — sending as the next prompt'
-            : 'not read — left in the composer',
+            ? 'not read - sending as the next prompt'
+            : 'not read - left in the composer',
         });
       }
 
@@ -3412,12 +3505,12 @@ export async function runClientInteractive({
           imageAttachments: images,
         });
       } catch (error: any) {
-        rollback(`not sent — ${error?.message ?? 'request failed'}`);
+        rollback(`not sent - ${error?.message ?? 'request failed'}`);
         return;
       }
       if (outcome === 'stale') {
 
-        rollback('turn ended — sending as the next prompt');
+        rollback('turn ended - sending as the next prompt');
       }
     };
 
@@ -3427,6 +3520,119 @@ export async function runClientInteractive({
 
 
     const jobWait = createJobWaitTracker(() => session.sessionId);
+
+    const refreshSkillCommands = () => {
+      try {
+        const local = skillCatalogue(discoverSkills(session.rootDir, session.env));
+        const names = new Set(local.map((skill) => skill.name));
+        setSkillSlashCommands([
+          ...local,
+          ...BUNDLED_SKILLS.filter((skill) => !names.has(skill.name)),
+        ]);
+      } catch {
+        setSkillSlashCommands([]);
+      }
+    };
+
+    const runSkillsCommand = async (args: string): Promise<void> => {
+      const builtinCommands = SLASH_COMMANDS.flatMap((option) => [
+        option.command,
+        ...(option.aliases ?? []),
+      ]);
+      if (!args || args === 'list') {
+        refreshSkillCommands();
+        store.update((current) => ({
+          ...current,
+          commandCursor: 0,
+          skillsPickerIndex: 0,
+          skillsPickerItems: buildSkillsPickerItems(session.rootDir, session.env, builtinCommands),
+          skillsPickerOpen: true,
+        }));
+        scheduleLiveFrameRemount();
+        return;
+      }
+      const addMatch = args.match(/^add(?:\s+([\s\S]*))?$/);
+      const project = /(^|\s)--project(\s|$)/.test(args);
+      const sourceText = String(addMatch?.[1] ?? '')
+        .replace(/(^|\s)--project(?=\s|$)/g, ' ')
+        .trim();
+      const source = addMatch && sourceText ? parseSkillSource(sourceText, session.rootDir) : null;
+      if (!source) {
+        appendStaticEntry({
+          body: `Usage: /skills to list skills, or ${SKILLS_ADD_USAGE}`,
+          kind: 'system',
+          title: 'Skills',
+        });
+        return;
+      }
+      const controller = new AbortController();
+      activeTurnAbort = controller;
+      store.update((current) => ({
+        ...current,
+        busy: true,
+        status: 'Fetching skill...',
+        activeTurnInput: `/skills add ${sourceText}`,
+      }));
+      try {
+        const prepared = await prepareSkillInstall(source, session.env, globalThis.fetch, controller.signal);
+        if (!prepared.ok) {
+          appendStaticEntry({
+            body: controller.signal.aborted ? 'Skill install cancelled.' : prepared.error,
+            kind: 'system',
+            title: 'Skills',
+          });
+          return;
+        }
+        const skill = prepared.skill;
+        const targetRoot = project
+          ? projectSkillsRoot(session.rootDir)
+          : personalSkillsRoot(session.env);
+        const destination = joinPath(targetRoot, skill.name);
+        const files = skill.files.map((file) => file.relPath);
+        const shownFiles = files.slice(0, 12).join(', ') + (files.length > 12 ? `, and ${files.length - 12} more` : '');
+        const decision = await openApprovalPrompt(
+          {
+            bucket: 'create',
+            title: `Install skill /${skill.name}?`,
+            body: [
+              skill.description,
+              '',
+              `From: ${skill.origin}`,
+              `To: ${destination}`,
+              `Files (${files.length}): ${shownFiles}`,
+              ...(preparedSkillHasScripts(skill)
+                ? ['', 'It includes scripts. Nothing runs now, and the agent still asks before running any command.']
+                : []),
+            ].join('\n'),
+            options: [
+              { label: 'Install', decision: { kind: 'once' } },
+              { label: 'Cancel', decision: { kind: 'deny' } },
+            ],
+          },
+          controller.signal,
+        );
+        if (decision.kind === 'deny') {
+          appendStaticEntry({ body: 'Skill not installed.', kind: 'system', title: 'Skills' });
+          return;
+        }
+        const installed = installPreparedSkill(skill, targetRoot);
+        if (!installed.ok) {
+          appendStaticEntry({ body: installed.error, kind: 'system', title: 'Skills' });
+          return;
+        }
+        refreshSkillCommands();
+        appendStaticEntry({
+          body: `Installed /${skill.name} in ${installed.dir}.\nThe agent can use it from your next message, or run it yourself with /${skill.name}.`,
+          kind: 'system',
+          title: 'Skills',
+        });
+      } finally {
+        if (activeTurnAbort === controller) activeTurnAbort = null;
+        store.update((current) => ({ ...current, busy: false, activeTurnInput: '', status: '' }));
+        await remountTui();
+        await flushQueuedMessage();
+      }
+    };
 
     const handleSubmit = async (
       rawInput: string,
@@ -3438,6 +3644,7 @@ export async function runClientInteractive({
         : String(rawInput ?? '');
       const input = expanded.trim();
       const preformatted = chunks.length > 0;
+      refreshSkillCommands();
       if (store.getState().busy) {
         if (!input || exiting) return;
         if (input.startsWith('/')) {
@@ -3565,6 +3772,11 @@ export async function runClientInteractive({
         return;
       }
 
+      if (input === '/skills' || input.startsWith('/skills ')) {
+        await runSkillsCommand(input.slice('/skills'.length).trim());
+        return;
+      }
+
       if (input === '/mcp') {
         const connections = sessionMcp(session);
         const controller = new AbortController();
@@ -3646,7 +3858,7 @@ export async function runClientInteractive({
           return;
         }
         appendStaticEntry({
-          body: 'Usage: /jobs — open the jobs picker · /jobs output <id> — full output · /jobs kill <id> — kill one',
+          body: 'Usage: /jobs - open the jobs picker · /jobs output <id> - full output · /jobs kill <id> - kill one',
           kind: 'system',
           title: 'Background jobs',
         });
@@ -3856,6 +4068,7 @@ export async function runClientInteractive({
         clockNow: turnStartedAt,
         recoveryStatus: '',
         status: 'Running turn...',
+        usageNotice: null,
 
 
 
@@ -3914,6 +4127,7 @@ export async function runClientInteractive({
           commandLog: [],
           imageAttachments: [],
           status: result.waitingForApproval ? 'Awaiting approval' : 'Finishing response...',
+          usageNotice: null,
           thinkingTitle: '',
           thinkingNotes: [],
           tokenUsage: formatClientTokenUsage(
@@ -3985,9 +4199,14 @@ export async function runClientInteractive({
         const failedTurnAttachments = activeTurnImageAttachments;
         activeTurnImageAttachments = [];
 
-        const quotaNotice = cancelled ? null : buildQuotaNotice(error);
+        const quotaNotice = cancelled ? null : buildRefusalNotice(error);
+        const restoresPrompt =
+          quotaNotice !== null && !jobFollowUp && !store.getState().input && !store.getState().queuedMessage;
         store.update((current) => ({
           ...current,
+          ...(restoresPrompt
+            ? { cursor: String(rawInput ?? '').length, input: String(rawInput ?? ''), pastedChunks: chunks }
+            : {}),
           activeTurnInput: '',
           activeTurnInputPreformatted: false,
           busy: false,
@@ -4065,6 +4284,18 @@ export async function runClientInteractive({
       }
     };
 
+    session.onAccountUsage = (usage) => {
+      if (usage?.plan && usage.plan !== store.getState().plan) {
+        store.update((current) => ({ ...current, plan: usage.plan }));
+      }
+      const notice = usageNotice(usage);
+      if (!notice) return;
+      const entry: TranscriptEntryDraft = { ...notice, kind: 'system' };
+      appendTurnAwareEntry(entry);
+      if (store.getState().busy) {
+        store.update((current) => ({ ...current, usageNotice: entry }));
+      }
+    };
     session.onImageAnalysis = (activeImageCount) => {
       store.update((current) => ({
         ...current,
@@ -4222,6 +4453,7 @@ export async function runClientInteractive({
         scheduleJobFollowUp();
       }
     });
+    refreshSkillCommands();
     session.requestSudoPassword = async ({ command, prompt, signal }) =>
       openSudoPasswordPrompt(command, prompt, signal);
     session.requestUserInput = async (request, signal) =>

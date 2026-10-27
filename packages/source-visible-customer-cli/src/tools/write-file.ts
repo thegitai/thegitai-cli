@@ -9,10 +9,7 @@ import {
   hasFreshFullReadCoverage,
   resolveRedactionTokens,
 } from '../session-safety.js';
-import {
-  invalidateShellDiagnosticsCache,
-  runShellDiagnostics,
-} from './shell-diagnostics.js';
+import { diagnoseEditedFile } from './shell-diagnostics.js';
 import { ensurePermission } from '../permissions.js';
 import { ToolContext, ToolResponse } from './types.js';
 
@@ -188,10 +185,9 @@ export async function writeFile(
   }
   const { changed } = writeProjectFile(rootDir, filePath, content);
 
-  let diagnostics: ReturnType<typeof runShellDiagnostics> | undefined;
+  let diagnostics: Awaited<ReturnType<typeof diagnoseEditedFile>> | undefined;
   if (!scratchPath) {
-    invalidateShellDiagnosticsCache(rootDir, filePath);
-    diagnostics = runShellDiagnostics(rootDir, filePath);
+    diagnostics = await diagnoseEditedFile(rootDir, filePath, 'write_file', context.diagnosticsPlan);
   }
 
   if (!isTuiMode()) {

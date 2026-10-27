@@ -621,6 +621,15 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
+    #[test]
+    fn ansi256_colors_map_to_their_palette_index() {
+        assert_eq!(map_color(Some("ansi256(247)")), Some(Color::Indexed(247)));
+        assert_eq!(map_color(Some("ansi256(8)")), Some(Color::Indexed(8)));
+        assert_eq!(map_color(Some("ansi256(256)")), None);
+        assert_eq!(map_color(Some("ansi256(")), None);
+        assert_eq!(map_color(Some("orange")), None);
+    }
+
     fn span(text: &str, inverse: bool) -> TuiSpan {
         TuiSpan {
             text: text.to_string(),
@@ -1430,10 +1439,10 @@ fn map_color(name: Option<&str>) -> Option<Color> {
         "cyan" => Some(Color::Cyan),
         "gray" | "grey" => Some(Color::DarkGray),
         "white" => Some(Color::White),
-        value if value.starts_with("ansi256(") => {
-            let digits: String = value.chars().filter(|c| c.is_ascii_digit()).collect();
-            digits.parse::<u8>().ok().map(Color::Indexed)
-        }
-        _ => None,
+        value => value
+            .strip_prefix("ansi256(")
+            .and_then(|rest| rest.strip_suffix(')'))
+            .and_then(|index| index.trim().parse::<u8>().ok())
+            .map(Color::Indexed),
     }
 }

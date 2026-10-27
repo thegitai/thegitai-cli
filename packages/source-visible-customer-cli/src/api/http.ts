@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_THEGITAI_HOST } from './default-host.js';
+import { getInstallId } from '../install-id.js';
 
 export interface AuthorizedServerConfig {
   serverUrl: string;
@@ -9,6 +10,7 @@ export interface AuthorizedServerConfig {
 export const TRACE_ID_HEADER = 'x-thegitai-trace-id';
 export const CLIENT_HEADER = 'x-thegitai-client';
 export const CLIENT_PLATFORM_HEADER = 'x-thegitai-client-platform';
+export const INSTALL_ID_HEADER = 'x-thegitai-install-id';
 
 export interface TraceContext {
   traceId: string;
@@ -20,6 +22,8 @@ export interface ServerApiErrorDetails {
   window?: string;
   resetsAt?: string;
   percentLeft?: number;
+  autoAvailable?: boolean;
+  upgradeUrl?: string;
 }
 
 export class ServerApiError extends Error {
@@ -49,12 +53,14 @@ export function createTraceId(): string {
 }
 
 export function createTraceContext(traceId = createTraceId()): TraceContext {
+  const installId = getInstallId();
   return {
     traceId,
     headers: {
       [TRACE_ID_HEADER]: traceId,
       [CLIENT_HEADER]: 'cli',
       [CLIENT_PLATFORM_HEADER]: `${process.platform}/${process.arch}`,
+      ...(installId ? { [INSTALL_ID_HEADER]: installId } : {}),
     },
   };
 }
@@ -351,6 +357,7 @@ export function gatewayFailureCategory(error: unknown): string | null {
   if (!(error instanceof ServerApiError)) return null;
 
   if (isQuotaExceededError(error)) return 'quota_exceeded';
+  if (isPlanRequiredError(error)) return 'plan_required';
   return error.status in GATEWAY_STATUS_MESSAGES ? 'gateway_error' : null;
 }
 
@@ -385,7 +392,19 @@ export function failureDetails(data: any): ServerApiErrorDetails {
     ...(typeof error.percentLeft === 'number'
       ? { percentLeft: error.percentLeft }
       : {}),
+    ...(error.autoAvailable === true ? { autoAvailable: true } : {}),
+    ...(isWebUrl(error.upgradeUrl) ? { upgradeUrl: error.upgradeUrl } : {}),
   };
+}
+
+function isWebUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
 }
 
 export const QUOTA_EXCEEDED_CODE = 'QUOTA_EXCEEDED';
@@ -397,6 +416,22 @@ export function isQuotaExceededError(error: unknown): boolean {
 
 
   return error.status === 429 && !error.code;
+}
+
+export const PLAN_REQUIRED_CODE = 'PLAN_REQUIRED';
+
+export function isPlanRequiredError(error: unknown): boolean {
+  return error instanceof ServerApiError && error.code === PLAN_REQUIRED_CODE;
+}
+
+const ACCOUNT_REFUSAL_CODES = new Set(['ACCOUNT_ACTIVITY_REVIEW', 'PHONE_VERIFICATION_REQUIRED']);
+
+export function isTurnRefusal(error: unknown): error is ServerApiError {
+  return (
+    isPlanRequiredError(error) ||
+    isQuotaExceededError(error) ||
+    (error instanceof ServerApiError && ACCOUNT_REFUSAL_CODES.has(error.code))
+  );
 }
 
 export function isAuthenticationError(error: unknown): error is ServerApiError {

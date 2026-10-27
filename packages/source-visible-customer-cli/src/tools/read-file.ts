@@ -24,6 +24,7 @@ import { readFileRange, truncate } from '../utils.js';
 import { ToolContext, ToolResponse } from './types.js';
 import { IMAGE_MIME_BY_EXT } from '../core/image-limits.js';
 import { readImageFile } from './read-image-file.js';
+import { isSkillsRelativePath } from '../skills/discovery.js';
 
 const MAX_FILE_READ_CHARS = 12000;
 const DOCUMENT_EXTENSIONS = new Set(['.pdf', '.xlsx', '.docx']);
@@ -53,7 +54,7 @@ export async function readFile(
     };
   }
 
-  if (projectPath && shouldIgnoreArtifactPath(projectPath)) {
+  if (projectPath && shouldIgnoreArtifactPath(projectPath) && !isSkillsRelativePath(projectPath)) {
     return {
       ok: false,
       error: 'This path is not permitted.',

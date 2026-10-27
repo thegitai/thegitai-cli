@@ -47,6 +47,7 @@ export interface BrowserIdentity {
 
   platform?: string;
   extensionVersion?: string;
+  lastFocusedAt?: number;
 }
 
 export interface HostHelloFrame {

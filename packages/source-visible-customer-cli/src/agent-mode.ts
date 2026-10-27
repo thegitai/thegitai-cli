@@ -17,6 +17,7 @@ const PLAN_MODE_TOOL_NAMES = new Set([
   'shell_job_output',
 
   'update_todos',
+  'use_skill',
 
 
 

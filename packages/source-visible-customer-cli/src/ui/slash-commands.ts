@@ -20,6 +20,7 @@ export interface SlashCommandOption {
 
 
   aliases?: string[];
+  skill?: boolean;
 }
 
 export const SLASH_COMMANDS: SlashCommandOption[] = [
@@ -32,6 +33,7 @@ export const SLASH_COMMANDS: SlashCommandOption[] = [
   },
   { command: '/new', description: 'start a new conversation; this session remains saved' },
   { command: '/mcp', description: 'Check MCP connections and available tools' },
+  { command: '/skills', description: 'List installed skills, or add one: /skills add <source>' },
   { command: '/jobs', description: 'Background jobs: pick to view output or kill' },
   {
     command: '/notify',
@@ -45,6 +47,29 @@ export const SLASH_COMMANDS: SlashCommandOption[] = [
 
 
 export const SLASH_COMMAND_SUGGESTION_LIMIT = 5;
+
+let skillCommands: SlashCommandOption[] = [];
+
+export function setSkillSlashCommands(
+  skills: Array<{ name: string; description: string; argumentHint?: string }>,
+): void {
+  const builtins = new Set(SLASH_COMMANDS.flatMap((option) => [option.command, ...(option.aliases ?? [])]));
+  skillCommands = skills
+    .filter((skill) => !builtins.has(`/${skill.name}`))
+    .map((skill) => ({
+      command: `/${skill.name}`,
+      description: skill.argumentHint ? `${skill.argumentHint} · ${skill.description}` : skill.description,
+      skill: true,
+    }));
+}
+
+export function isSkillSlashCommand(option: SlashCommandOption): boolean {
+  return option.skill === true;
+}
+
+function allSlashCommands(): SlashCommandOption[] {
+  return skillCommands.length ? [...SLASH_COMMANDS, ...skillCommands] : SLASH_COMMANDS;
+}
 
 export function getInputCommandToken(input: string): string {
   const trimmed = String(input ?? '').trimStart();
@@ -165,7 +190,7 @@ function scoreSlashCommand(option: SlashCommandOption, token: string): number {
 function rankSlashCommands(input: string): SlashCommandOption[] {
   const token = getInputCommandToken(input).toLowerCase();
   if (!token) return [];
-  return SLASH_COMMANDS.map((option, order) => ({
+  return allSlashCommands().map((option, order) => ({
     option,
     order,
     score: scoreSlashCommand(option, token),

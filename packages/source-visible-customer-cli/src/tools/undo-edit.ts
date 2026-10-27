@@ -249,6 +249,6 @@ export async function undoEdit(
     previewed,
     reverted,
     gitWorkTree: selected.some((record) => record.gitWorkTree),
-    diagnostics: dryRun ? undefined : runShellDiagnostics(context.rootDir),
+    diagnostics: dryRun ? undefined : await runShellDiagnostics(context.rootDir),
   };
 }

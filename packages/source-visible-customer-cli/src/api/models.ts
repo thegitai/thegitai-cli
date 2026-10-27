@@ -11,6 +11,7 @@ import { getClientStateDir } from '../client-state.js';
 import type { CliAuthConfig } from './auth.js';
 import type {
   ListModelsResponse as ServerModelsResponse,
+  ModelLock,
   ServerModelInfo,
 } from './contracts.js';
 import {
@@ -45,7 +46,19 @@ function sanitizeModelInfo(raw: unknown): ServerModelInfo | null {
   if (!Number.isInteger(id) || id <= 0 || !label || !isCostRating(costRating)) {
     return null;
   }
-  return { id, label, costRating, description };
+  const locked = isModelLock(value.locked) ? value.locked : undefined;
+  return {
+    id,
+    label,
+    costRating,
+    description,
+    ...(locked ? { locked } : {}),
+    ...(value.auto === true ? { auto: true as const } : {}),
+  };
+}
+
+function isModelLock(value: unknown): value is ModelLock {
+  return value === 'plan' || value === 'auto-only';
 }
 
 function isCostRating(value: number): value is 1 | 2 | 3 {
@@ -182,6 +195,16 @@ export function selectServerModel({
       return requested;
     }
     throw new Error(`Server does not support model "${requested}".`);
+  }
+  const unlockedIds = new Set(
+    serverModels.models.filter((model) => !model.locked).map((model) => model.id),
+  );
+  const firstUnlocked = serverModels.models.find((model) => !model.locked)?.id;
+  for (const candidate of [cached?.selectedModelId, serverModels.models[0]?.id, firstUnlocked]) {
+    const id = Number(candidate);
+    if (Number.isInteger(id) && unlockedIds.has(id)) {
+      return id;
+    }
   }
   for (const candidate of [cached?.selectedModelId, serverModels.models[0]?.id]) {
     const id = Number(candidate);

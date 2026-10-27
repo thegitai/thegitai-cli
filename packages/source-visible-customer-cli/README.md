@@ -1,10 +1,29 @@
-# TheGitAI — AI coding agent for your terminal
+# TheGitAI - AI coding agent for your terminal
 
-TheGitAI is an AI coding agent for your terminal. It reads and searches your repository,
-writes and edits files, runs commands, and builds features with you.
+TheGitAI is an AI coding agent that carries a task the whole way in your
+terminal: it investigates your repository, changes code across files, runs your
+real project, and checks the result against your own tests before handing it
+back. Every edit it makes can be undone without touching yours.
 
-Talk to your repo in plain English. TheGitAI can keep long-running processes
-going while you work, all with your approval.
+- **Your repository and shell** - literal, regex and natural-language code
+  search, multi-file edits, shell commands, tests, builds and diagnostics, with
+  up to six independent lookups running at once.
+- **Your live stack** - up to eight dev servers, watchers and local APIs keep
+  running in the background while it reproduces a bug and reads the logs.
+- **Your signed-in Chrome** - with the TheGitAI Chrome extension it works in the
+  browser you already have open, signed in as you, in its own tab group.
+- **Skills** - teach it your team's workflows as `SKILL.md` folders. It uses one
+  when a request calls for it, or when you type `/<name>`.
+- **MCP servers** - connect local or remote MCP servers with `ai mcp add`.
+- **Beyond source code** - reads PDF, Word and Excel files, edits Word
+  documents, looks at screenshots, and searches and fetches the web.
+- **Steering and recovery** - send corrections while it works, switch between
+  Default, Bypass all permissions and Plan modes, and undo an edit, a turn or a
+  file, or restore a checkpoint.
+- **Curated frontier models** - switch models mid-session without losing the
+  conversation. No provider API keys to manage.
+
+Documentation: https://thegit.ai/docs
 
 ## Install
 
@@ -21,9 +40,9 @@ your machine, `thegitai` starts the same CLI.
 
 `ai` checks for a newer release each time it starts, and offers to install it
 for you. TheGitAI works best on the latest version, and an older CLI may not
-work optimally. **Update now** is already selected, so Enter takes it — the CLI
+work optimally. **Update now** is already selected, so Enter takes it - the CLI
 installs the update and asks you to start `ai` again, so the whole session runs
-one version — while ↑/↓ moves to **Skip** to go on with the version you have. Skipping lasts for that session
+one version - while ↑/↓ moves to **Skip** to go on with the version you have. Skipping lasts for that session
 only; the next start asks again. Ctrl+C quits without installing anything.
 
 ## Usage
@@ -39,6 +58,25 @@ ai --version        print the version and exit
 ```
 
 Run `ai --help` for sessions, modes, keys, and chat commands.
+
+The CLI shows a usage notice at 80% and 95% of your 5-hour, weekly, or monthly
+allowance while work continues. Notices include when usage starts resetting in
+your local time and a reminder to run `/usage`. When more than one allowance is
+nearly used, the notice names only the most urgent one; `/usage` shows them
+all. While the CLI stays open, the 80% notice rearms only
+below 75% usage and the 95% notice only below 90%, so small fluctuations stay
+quiet. Restarting the CLI can show a notice again. A nearly exhausted allowance
+displays "over 99%". Live notices clear when a turn ends or is cancelled, and
+remain in the transcript. Usage updates arrive when a turn starts and after
+usage is saved during and at the end of the turn. An exhausted allowance still
+shows `Usage limit reached`.
+
+A request your account cannot run right now, such as one for a model your plan
+does not include or one sent after an allowance is used up, is refused before
+it starts. The CLI shows why, with the reset time and, where an upgrade would
+help, a link to the plans page. The refused request is put back in the input
+box so you can switch models and send it again, and it is not saved to the
+session.
 
 Coding sessions require an interactive terminal on stdin and stdout. Piped
 one-shot prompts are not supported. Saved history is local to the repo and can
@@ -57,11 +95,15 @@ again on the next run.
 
 ## Models and reasoning effort
 
-Type `/model` to choose a model with **↑ / ↓** and adjust its reasoning effort
+Type `/model` to choose with **↑ / ↓**, and adjust a model's reasoning effort
 with **← / →** in the same panel: **Default / Low / Balanced / Deep**.
 **Enter** saves the selected model's choice for this project; **Esc** cancels.
 Each model remembers its own choice across new and resumed sessions.
-The picker and footer show the effort beside the model name. The footer labels
+A model your plan does not include stays in the list, grayed out with the
+reason, and **Enter** does not select it.
+On Plus or Pro, the footer names the plan after **TheGitAI**.
+The picker shows a model's effort beside its name when it is not Default, and
+the footer always shows it. The footer labels
 agent mode separately as `Mode: ...`; narrow terminals place it on the next
 line, keeping both settings visible while idle and working.
 
@@ -76,7 +118,7 @@ overwrite it until the file is repaired or removed.
 
 A dropped connection does not end your turn. The CLI shows
 `Connection interrupted · retrying in 10s · retry 1/3` under the working timer,
-waits ten seconds, and reconnects to the same turn — it never starts the request
+waits ten seconds, and reconnects to the same turn - it never starts the request
 over, and a command, edit or browser action that already ran is not run again.
 It tries three times. Once it is back, the turn simply continues and a short
 `Connection restored` note stays in the transcript.
@@ -88,8 +130,8 @@ waits up to three times before giving up.
 If TheGitAI itself restarted while it was working, the turn cannot resume
 where it was. It continues instead: the CLI sends your request once more with
 the steps that already finished on your machine and everything you told it
-during the turn, and the work picks up from there — a command that already ran
-is not run again, and a correction you made still stands — with a short
+during the turn, and the work picks up from there - a command that already ran
+is not run again, and a correction you made still stands - with a short
 `Server restarted` note in the transcript.
 
 Press Esc at any point to stop the turn instead. If all three retries fail, the
@@ -121,7 +163,7 @@ Inside a chat, run **`/mcp`** to connect and see each server's status and tools.
 Configured tools are connected in parallel and made available to the active
 model. Tool lists are cached for one minute and refreshed when the server reports
 a change. Failed connections wait one minute before retrying; `/mcp` retries
-immediately, and a check you cancel is retried on the next turn. Ask normally, or name the server when you want it used—for
+immediately, and a check you cancel is retried on the next turn. Ask normally, or name the server when you want it used - for
 example, “Use Context7 to check the current API for this library.” Configuration
 changes apply on the next turn or `/mcp`; they do not change an in-flight turn.
 `ai mcp list` shows configuration without starting servers. `get` shows metadata
@@ -199,6 +241,41 @@ or impose rate limits; Playwright requires a supported installed browser.
 
 Run `ai mcp --help` for the command reference.
 
+## Skills
+
+A skill teaches TheGitAI a repeatable workflow: a folder with a `SKILL.md`
+file, plus any reference files or scripts it needs.
+
+```markdown
+---
+name: release-notes
+description: Write release notes from merged pull requests. Use when the user asks for release notes or a changelog entry.
+argument-hint: <version>
+---
+
+1. Run scripts/collect-prs.sh $ARGUMENTS to list the merged pull requests.
+2. Follow references/style.md for headings and tone.
+```
+
+Put it in `~/.thegitai/skills/<name>/` to use it in every project, or in
+`<project>/.thegitai/skills/<name>/` to share it with a repository; yours wins
+when both have the same name. Folders for other tools, such as
+`.agents/skills`, are not read. `name` (lowercase letters, digits and single
+hyphens, matching the folder) and `description` (what it does and when to use
+it, up to 1024 characters) are required; `disable-model-invocation: true` makes
+a skill run only when you type it, and `argument-hint` is shown in the command
+picker.
+
+TheGitAI keeps only each skill's name and description in view and loads the
+full instructions when a request matches. Its scripts go through the normal
+approvals. Type `/<name> [what to do]` to run a skill yourself; the text after
+the name replaces `$ARGUMENTS`. `/skills` lists your skills and explains any that
+did not load. `/skills add <source>` installs one from GitHub
+(`owner/repo/path`, optionally `@ref`, or a URL; set `GITHUB_TOKEN` for private
+repositories) or a local folder after showing what it contains; add `--project`
+to install it into the current project. Ask the agent to "create a skill that
+..." or run `/skill-creator` to make one.
+
 ## Chrome browser control
 
 The TheGitAI Chrome extension is separately installed. After installing it,
@@ -206,7 +283,10 @@ start `ai` normally and ask about your current tab or a website task. It uses
 your existing Chrome profile, website sessions, and terminal login. Connection
 is automatic; no setup/start command, second sign-in, or manual tab attachment
 is required. Tabs used by the agent join a TheGitAI tab group in an existing
-window. The conversation stays in your terminal.
+window. The conversation stays in your terminal. With more than one Chrome
+profile connected, TheGitAI asks which one to use the first time it acts in
+the browser, with the one you used last as the default, and keeps that profile
+for the conversation, including after `/resume`.
 
 Default mode asks before using a website and can remember that site for the
 session. Bypass all permissions allows browser actions; Plan mode reads pages
@@ -226,15 +306,15 @@ form. Use **↑ / ↓**, the displayed option number, or **Enter** to choose, an
 **← / →** to move between questions. **Something else / add details** is the
 numbered final option; focus it and type, paste, or press **Enter** to add a
 single-line note; **Enter** commits it and moves on the way any other choice
-does — to the next question, or to **Submit answers** on the last one — without
+does - to the next question, or to **Submit answers** on the last one - without
 submitting the form. On single-select questions it is mutually exclusive with
 the listed choices, and **↑ / ↓** leaves its editor when the note is empty.
 Multi-select questions toggle choices. The last question has an explicit
 **Submit answers** row. **Esc** closes an open note first and otherwise cancels
 the form; **Ctrl+C** cancels the whole turn.
 
-Only the option you are on shows its description, so the whole form — every
-option, the note row, **Submit answers**, and the key hints — stays on screen
+Only the option you are on shows its description, so the whole form - every
+option, the note row, **Submit answers**, and the key hints - stays on screen
 without scrolling. Move between options to read the others.
 
 Answers return to the same turn, and completed question/answer records remain
@@ -249,8 +329,8 @@ you can see what it plans to do, what it is working on right now, and what is
 already done.
 
 - While the agent works, the list sits at the bottom of the live **Working**
-  area, right above where you type, and updates as steps start and finish —
-  one step in progress at a time — so it stays visible even when tool output
+  area, right above where you type, and updates as steps start and finish -
+  one step in progress at a time - so it stays visible even when tool output
   above it runs long.
 - When the turn ends, a final snapshot of the list stays readable in the
   transcript, and the footer shows a small progress chip (e.g. `◐ 4/6 to-dos`)
@@ -261,7 +341,7 @@ already done.
 
 ## Background jobs
 
-Some commands are meant to keep running — a dev server, a file watcher, a local
+Some commands are meant to keep running - a dev server, a file watcher, a local
 API. TheGitAI runs these as **background jobs**, so the agent can start a server,
 work against it live, and stop it when the task is done, all in one session.
 
@@ -279,5 +359,5 @@ Full documentation: <https://thegit.ai/docs>
 
 ## License
 
-Proprietary — see the LICENSE file included in this package. Source is
+Proprietary - see the LICENSE file included in this package. Source is
 visible for inspection; copying and redistribution are not permitted.

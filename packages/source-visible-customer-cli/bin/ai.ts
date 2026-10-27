@@ -349,7 +349,7 @@ export async function main(): Promise<void> {
   if (offlineNotice) {
     console.error(
       chalk.yellow(
-        `⚠ Couldn't reach TheGitAI (${offlineNotice}). Starting with cached settings — it will reconnect on your next message.`,
+        `⚠ Couldn't reach TheGitAI (${offlineNotice}). Starting with cached settings - it will reconnect on your next message.`,
       ),
     );
   }
@@ -413,6 +413,7 @@ export async function main(): Promise<void> {
       appendPromptHistory: (value) => appendPromptHistory(value, session.env),
       authConfig,
       debugUi: whoami.debugUi,
+      plan: whoami.usage?.plan,
       serverModels,
       serverSessionClient,
       session,

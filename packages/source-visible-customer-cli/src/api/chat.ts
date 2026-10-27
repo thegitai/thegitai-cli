@@ -16,6 +16,7 @@ import {
 } from '../session-store.js';
 import { executeLocalToolCall } from '../tool-executor.js';
 import { saveGeneratedImage } from '../tools/save-generated-image.js';
+import { readEditDiagnosticsPlan } from '../tools/shell-diagnostics.js';
 import type { CliAuthConfig } from './auth.js';
 import type {
   ChatInterjectionDeliveredEvent,
@@ -37,6 +38,9 @@ import {
   gatewayFailureCategory,
   normalizeServerUrl,
   QUOTA_EXCEEDED_CODE,
+  PLAN_REQUIRED_CODE,
+  failureDetails,
+  isTurnRefusal,
   readErrorResponse,
   ServerApiError,
   type ServerApiErrorDetails,
@@ -54,6 +58,7 @@ import {
 } from './turn-recovery.js';
 import { collectClientEnvironment } from '../client-environment.js';
 import { collectProjectOrientation } from '../project-orientation.js';
+import { collectSkillRequest } from '../skills/discovery.js';
 import { describeSessionImageStore } from '../core/session-image-store.js';
 import { autoAttachImages } from '../core/image-path-extractor.js';
 import { formatTurnFailureMarker } from '../turn-failure-marker.js';
@@ -690,7 +695,7 @@ async function executeAndPostToolResult({
             event.generatedImage.suggestedFilename ||
             String(call.args?.filename ?? call.args?.file_name ?? ''),
         })
-      : await executeLocalToolCall(session, call);
+      : await executeLocalToolCall(session, call, readEditDiagnosticsPlan(event.diagnostics));
     preserveCancelledTurnToolResult(session, input, { ...event, call }, rawResult);
     executed();
     signal.throwIfAborted();
@@ -796,7 +801,10 @@ function terminalFailure(event: SseEvent, traceId: string): Error {
     return new TurnCancelledError(message);
   }
   if (data.code === QUOTA_EXCEEDED_CODE) {
-    return new ServerApiError(message, 429, eventTraceId, QUOTA_EXCEEDED_CODE, data.details ?? {});
+    return new ServerApiError(message, 429, eventTraceId, QUOTA_EXCEEDED_CODE, failureDetails({ error: data.details }));
+  }
+  if (data.code === PLAN_REQUIRED_CODE) {
+    return new ServerApiError(message, 402, eventTraceId, PLAN_REQUIRED_CODE, failureDetails({ error: data.details }));
   }
   return new ChatTurnFailedError(
     message,
@@ -907,6 +915,10 @@ async function runTurnStream({
     lastEventId = event.id;
     const data = event.data;
     switch (event.event) {
+      case 'account-usage': {
+        session.onAccountUsage?.(data);
+        break;
+      }
       case 'turn-start': {
 
 
@@ -1152,6 +1164,7 @@ export async function sendServerUserMessage({
 
     clientTurnId: randomUUID(),
     mcpTools: await sessionMcp(session).discover(signal),
+    ...collectSkillRequest(session.rootDir, session.env, jobFollowUp ? '' : requestInputBase),
     modelId: session.modelId,
     reasoningEffort: projectModelEffort(
       readProjectModelEfforts(session.rootDir, config.serverUrl, session.env),
@@ -1295,6 +1308,9 @@ export async function sendServerUserMessage({
             (gatewayFailureCategory(error) ?? 'unknown_error');
     const partial =
       error instanceof ChatTurnFailedError ? error.partialSnapshot : undefined;
+    const refusedUntouched =
+      !partial && session.history.length === preTurnHistoryLength && isTurnRefusal(error);
+    if (refusedUntouched) throw error;
     if (partial) {
 
 
@@ -1442,7 +1458,9 @@ function startTurnAttempt({
       turnSignal,
     );
     if (!response.ok) {
-      throw await readErrorResponse(response, trace.traceId);
+      const error = await readErrorResponse(response, trace.traceId);
+      if (!lastEventId && isTurnRefusal(error)) serverSettled = true;
+      throw error;
     }
     return response;
   };

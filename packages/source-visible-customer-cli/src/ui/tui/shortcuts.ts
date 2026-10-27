@@ -61,11 +61,11 @@ export function buildShortcutGroups(
           keys: 'Shift+Tab',
           description: `Cycle ${agentModeCycleSequence()} (between turns)`,
         },
-        { keys: '/', description: 'Slash commands — /help lists them all' },
+        { keys: '/', description: 'Slash commands - /help lists them all' },
         { keys: '↑ / ↓', description: 'Earlier prompts' },
         { keys: 'Esc', description: 'Clear the composer' },
         { keys: 'Ctrl+C', description: 'Clear the composer, or quit when empty' },
-        { keys: 'Ctrl+G', description: 'Desktop notifications — toggle on or off' },
+        { keys: 'Ctrl+G', description: 'Desktop notifications - toggle on or off' },
       ],
     },
     {
@@ -89,7 +89,7 @@ export function buildShortcutGroups(
     {
       title: 'Transcript',
       rows: [
-        { keys: 'PageUp / PageDown', description: 'Scroll — the mouse wheel works too' },
+        { keys: 'PageUp / PageDown', description: 'Scroll - the mouse wheel works too' },
         { keys: 'Drag', description: 'Select and copy' },
         { keys: 'Double-click', description: 'Copy a word' },
         { keys: 'Triple-click', description: 'Copy a whole row' },

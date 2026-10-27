@@ -710,7 +710,7 @@ export function getBlockedCommandReason(
 
 
 
-    return `Listing or scanning the shared OS temp directory (${tempName}) is blocked because it can contain other users' and processes' files. Use the session scratch directory ${ensureSessionScratchDir()} for temporary scripts and files — creating, running, and listing are all allowed there — or reference an exact file path.`;
+    return `Listing or scanning the shared OS temp directory (${tempName}) is blocked because it can contain other users' and processes' files. Use the session scratch directory ${ensureSessionScratchDir()} for temporary scripts and files - creating, running, and listing are all allowed there - or reference an exact file path.`;
   }
   if (ignoredDir) {
     return `Command inspects an off-limits generated or dependency directory (${ignoredDir}). Avoid that path.`;

@@ -9,10 +9,7 @@ import {
 import { repairFilePath } from './path-suggest.js';
 import { isTuiMode } from '../runtime-mode.js';
 import { getCurrentFileHash, resolveRedactionTokens } from '../session-safety.js';
-import {
-  invalidateShellDiagnosticsCache,
-  runShellDiagnostics,
-} from './shell-diagnostics.js';
+import { diagnoseEditedFile } from './shell-diagnostics.js';
 import { ensurePermission } from '../permissions.js';
 import { ToolContext, ToolResponse } from './types.js';
 
@@ -240,10 +237,9 @@ export async function strReplace(
   const { changed } = writeProjectFile(rootDir, filePath, nextContent);
   const replacements = changed ? (replaceAll ? n : 1) : 0;
 
-  let diagnostics: ReturnType<typeof runShellDiagnostics> | undefined;
+  let diagnostics: Awaited<ReturnType<typeof diagnoseEditedFile>> | undefined;
   if (!scratchPath) {
-    invalidateShellDiagnosticsCache(rootDir, filePath);
-    diagnostics = runShellDiagnostics(rootDir, filePath);
+    diagnostics = await diagnoseEditedFile(rootDir, filePath, 'str_replace', context.diagnosticsPlan);
   }
   const originalLines = originalContent.split('\n').length;
   const nextLines = nextContent.split('\n').length;

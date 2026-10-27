@@ -1,4 +1,4 @@
-# TheGitAI — AI coding agent for your terminal
+# TheGitAI - AI coding agent for your terminal
 
 TheGitAI is an AI coding agent for terminal-based engineering work. Give it the
 outcome you want: it investigates the repository, changes code across files,
@@ -39,41 +39,35 @@ suite, check the final diff for regressions, and update the signup guide.
 
 ## What it can do
 
-- **Understand** — search the repository, read the relevant files and related
+- **Understand** - search the repository, read the relevant files and related
   tests, and gather current web context.
-- **Change** — create, patch, replace, and delete files across an
+- **Change** - create, patch, replace, and delete files across an
   implementation, its tests, configuration, and documentation.
-- **Run** — use the shell, diagnostics, scratch scripts, and managed background
+- **Run** - use the shell, diagnostics, scratch scripts, and managed background
   processes in the real project environment.
-- **Verify** — run tests, builds, linters, typecheckers, and final-diff checks
+- **Verify** - run tests, builds, linters, typecheckers, and final-diff checks
   as evidence for the handoff.
-- **Work beyond source** — read PDFs, spreadsheets, and Word documents; edit
+- **Work beyond source** - read PDFs, spreadsheets, and Word documents; edit
   visible DOCX text; inspect screenshots; and fetch public web pages.
-- **Stay controllable** — ask for approval, work read-only in Plan mode, undo
+- **Stay controllable** - ask for approval, work read-only in Plan mode, undo
   assistant edits, restore checkpoints, and resume repo-scoped sessions.
 
 The full manual is [What It Can Do](https://thegit.ai/docs/core-features/what-it-can-do).
 
 ## Highlights
 
-- **[Task list and parallel work](https://thegit.ai/docs/core-features/parallel-work-and-task-progress)**
-  — a visible task list for multi-step work, up to six read-only lookups at
+- **[Task list and parallel work](https://thegit.ai/docs/core-features/parallel-work-and-task-progress)** - a visible task list for multi-step work, up to six read-only lookups at
   once, and a queued follow-up message while the agent is still working.
-- **[Background jobs](https://thegit.ai/docs/core-features/background-jobs)**
-  — dev servers, watchers, and builds keep running with a live tail of their
+- **[Background jobs](https://thegit.ai/docs/core-features/background-jobs)** - dev servers, watchers, and builds keep running with a live tail of their
   output. `/jobs` browses and stops them.
-- **[Documents, images and web](https://thegit.ai/docs/core-features/documents-images-and-web)**
-  — PDF, XLSX, and DOCX reading, DOCX text edits, pasted screenshots, and
+- **[Documents, images and web](https://thegit.ai/docs/core-features/documents-images-and-web)** - PDF, XLSX, and DOCX reading, DOCX text edits, pasted screenshots, and
   public web search and page fetches.
-- **[MCP servers](https://thegit.ai/docs/core-features/mcp-servers)**
-  — connect local stdio or remote HTTP tools with `ai mcp add`. `/mcp` shows
+- **[MCP servers](https://thegit.ai/docs/core-features/mcp-servers)** - connect local stdio or remote HTTP tools with `ai mcp add`. `/mcp` shows
   their status and tools.
-- **[Browser control](https://thegit.ai/docs/core-features/browser-control)**
-  — with the TheGitAI Chrome extension, the agent works in the Chrome you
+- **[Browser control](https://thegit.ai/docs/core-features/browser-control)** - with the TheGitAI Chrome extension, the agent works in the Chrome you
   already have open, signed in as you: cloud consoles, dashboards, and admin
   panels with no API.
-- **[Saved sessions](https://thegit.ai/docs/sessions/saved-sessions)**
-  — sessions are saved locally per repository. Resume one with `/resume` or
+- **[Saved sessions](https://thegit.ai/docs/sessions/saved-sessions)** - sessions are saved locally per repository. Resume one with `/resume` or
   `ai --session <id|name>`.
 
 ## Modes and safety
@@ -113,28 +107,28 @@ The complete list is in the [CLI Reference](https://thegit.ai/docs/reference/cli
 
 ## Documentation
 
-- **Getting started** —
+- **Getting started** -
   [Introduction](https://thegit.ai/docs/getting-started/introduction) ·
   [Installation](https://thegit.ai/docs/getting-started/installation) ·
   [Authentication](https://thegit.ai/docs/getting-started/authentication)
-- **Basics** —
+- **Basics** -
   [Sessions & Modes](https://thegit.ai/docs/basics/sessions-and-modes) ·
   [Chat Commands](https://thegit.ai/docs/basics/chat-commands) ·
   [Keyboard & Mouse](https://thegit.ai/docs/basics/keyboard-and-mouse)
-- **Core features** —
+- **Core features** -
   [What It Can Do](https://thegit.ai/docs/core-features/what-it-can-do) ·
   [Parallel Work & Task Progress](https://thegit.ai/docs/core-features/parallel-work-and-task-progress) ·
   [Background Jobs](https://thegit.ai/docs/core-features/background-jobs) ·
   [Documents, Images & Web](https://thegit.ai/docs/core-features/documents-images-and-web) ·
   [MCP Servers](https://thegit.ai/docs/core-features/mcp-servers) ·
   [Browser Control](https://thegit.ai/docs/core-features/browser-control)
-- **Sessions** —
+- **Sessions** -
   [Saved Sessions](https://thegit.ai/docs/sessions/saved-sessions) ·
   [Prompt History](https://thegit.ai/docs/sessions/prompt-history)
-- **Safety & privacy** —
+- **Safety & privacy** -
   [Approvals & Guardrails](https://thegit.ai/docs/safety/approvals-and-guardrails) ·
   [Trust & Privacy](https://thegit.ai/docs/safety/trust-and-privacy)
-- **Reference** —
+- **Reference** -
   [CLI Reference](https://thegit.ai/docs/reference/cli-reference) ·
   [Troubleshooting](https://thegit.ai/docs/reference/troubleshooting)
 

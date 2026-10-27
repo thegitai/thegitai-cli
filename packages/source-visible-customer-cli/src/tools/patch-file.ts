@@ -11,10 +11,7 @@ import {
 import { repairFilePath } from './path-suggest.js';
 import { isTuiMode } from '../runtime-mode.js';
 import { getCurrentFileHash, resolveRedactionTokens } from '../session-safety.js';
-import {
-  invalidateShellDiagnosticsCache,
-  runShellDiagnostics,
-} from './shell-diagnostics.js';
+import { diagnoseEditedFile } from './shell-diagnostics.js';
 import { ensurePermission } from '../permissions.js';
 import { ToolContext, ToolResponse } from './types.js';
 
@@ -125,10 +122,9 @@ export async function patchFile(
   }
   const { changed } = writeProjectFile(rootDir, filePath, patchedContent);
 
-  let diagnostics: ReturnType<typeof runShellDiagnostics> | undefined;
+  let diagnostics: Awaited<ReturnType<typeof diagnoseEditedFile>> | undefined;
   if (!scratchPath) {
-    invalidateShellDiagnosticsCache(rootDir, filePath);
-    diagnostics = runShellDiagnostics(rootDir, filePath);
+    diagnostics = await diagnoseEditedFile(rootDir, filePath, 'patch_file', context.diagnosticsPlan);
   }
   const originalLines = originalContent.split('\n').length;
   const patchedLines = patchedContent.split('\n').length;

@@ -41,6 +41,7 @@ import { strReplace } from './str-replace.js';
 import type { ToolContext, ToolResponse } from './types.js';
 import { undoEdit } from './undo-edit.js';
 import { updateTodos } from './update-todos.js';
+import { useSkill } from './use-skill.js';
 import { readImageFile } from './read-image-file.js';
 import { saveGeneratedImage } from './save-generated-image.js';
 import { writeFile } from './write-file.js';
@@ -72,6 +73,7 @@ export const TOOL_MAP: Record<string, ToolFn> = {
   shell_job_output: shellJobOutput as ToolFn,
   shell_job_kill: shellJobKill as ToolFn,
   update_todos: updateTodos as ToolFn,
+  use_skill: (context, args) => useSkill(context, args),
 
 
 
@@ -80,7 +82,7 @@ export const TOOL_MAP: Record<string, ToolFn> = {
 
 
 
-  browser: (context) => browserGateway(context),
+  browser: (context, args) => browserGateway(context, args),
   browser_tabs: browserTabs as ToolFn,
   browser_tab_new: (context, args) => browserTabNew(context, args),
   browser_tab_close: browserTabClose as ToolFn,

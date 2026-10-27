@@ -39,6 +39,12 @@ function formatPercentLeft(value: number): string {
   }).format(percent)}% left`;
 }
 
+const PLAN_NAMES: Record<string, string> = {
+  free: 'Free',
+  plus: 'Plus',
+  pro: 'Pro',
+};
+
 export function formatUsageText(response: WhoAmIResponse): string {
   const { customer, usage } = response;
   const lines = [`Usage for ${customer.email}`, ''];
@@ -48,11 +54,30 @@ export function formatUsageText(response: WhoAmIResponse): string {
     return lines.join('\n');
   }
 
+  if (usage.plan) {
+    lines.push(`Plan: ${PLAN_NAMES[usage.plan] ?? usage.plan}`, '');
+  }
   lines.push('Window     Left        Resets');
   for (const [label, key] of USAGE_WINDOWS) {
     const value = formatPercentLeft(Number(usage.percentLeft[key] ?? 0));
     lines.push(
       `${label.padEnd(10)} ${value.padEnd(11)} ${formatUtcMinute(usage.resetsAt[key])}`,
+    );
+  }
+  if (usage.autoOnly) {
+    const value = formatPercentLeft(Number(usage.autoPercentLeft ?? 0));
+    lines.push(
+      `${'Auto extra'.padEnd(10)} ${value.padEnd(11)} ${formatUtcMinute(usage.resetsAt.monthly)}`,
+      '',
+      ...(usage.autoExtraSpent
+        ? [
+            'Your monthly allowance and extra Auto usage are used up. Usage',
+            'resumes when your plan renews.',
+          ]
+        : [
+            'Your monthly allowance is used up. Auto options in /model still work',
+            'on extra usage until it runs out or your plan renews.',
+          ]),
     );
   }
 

@@ -1,8 +1,10 @@
 import type { McpToolDefinition } from '../mcp-types.js';
+import type { InvokedSkill, SkillCatalogueEntry } from '../skills/types.js';
 import type { AssistantEditRecord } from '../edit-journal.js';
 import type { AgentMode } from '../agent-mode.js';
 import type { SessionSafetyState } from '../session-safety.js';
 import type { SessionImageStoreContext } from '../core/session-image-store.js';
+import type { EditDiagnosticsPlan } from '../tools/shell-diagnostics.js';
 import type { ChatMessage, ImageAttachment, ToolCall } from '../types.js';
 
 export type { SessionImageStoreContext };
@@ -31,27 +33,39 @@ export interface CliReleaseInfo {
   latestVersion: string;
 }
 
+export type AccountPlan = 'free' | 'plus' | 'pro';
+
+export interface AccountUsage {
+  percentLeft: Record<'5-hourly' | 'weekly' | 'monthly', number>;
+  resetsAt: Record<'5-hourly' | 'weekly' | 'monthly', string | null>;
+  plan?: AccountPlan;
+  autoOnly?: true;
+  autoPercentLeft?: number;
+  autoExtraSpent?: true;
+}
+
 export interface WhoAmIResponse {
   customer: AuthCustomer;
   debugUi: {
     showSessionId: boolean;
   };
   release?: CliReleaseInfo;
-  usage?: {
-    percentLeft: Record<'5-hourly' | 'weekly' | 'monthly', number>;
-    resetsAt: Record<'5-hourly' | 'weekly' | 'monthly', string | null>;
-  };
+  usage?: AccountUsage;
 }
 
 export interface LogoutResponse {
   ok: true;
 }
 
+export type ModelLock = 'plan' | 'auto-only';
+
 export interface ServerModelInfo {
   id: number;
   label: string;
   costRating: 1 | 2 | 3;
   description: string;
+  locked?: ModelLock;
+  auto?: true;
 }
 
 export interface ListModelsResponse {
@@ -152,6 +166,8 @@ export interface ProjectOrientationContext {
 
 export interface ChatTurnRequest {
   mcpTools?: McpToolDefinition[];
+  skills?: SkillCatalogueEntry[];
+  invokedSkill?: InvokedSkill;
   reasoningEffort?: import('../reasoning-effort.js').ReasoningEffort;
   clientTurnId: string;
   modelId: number | null;
@@ -214,6 +230,7 @@ export interface ChatToolCallEvent {
 
 
   generatedImage?: GeneratedImageSavePayload;
+  diagnostics?: EditDiagnosticsPlan;
 }
 
 export interface ChatToolResultEvent {

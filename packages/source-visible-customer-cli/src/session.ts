@@ -20,6 +20,7 @@ import { closeBrowserBridge } from './browser/session-bridge.js';
 import type { ChatMessage, ToolCall } from './types.js';
 import { clampInteger } from './utils.js';
 import type {
+  AccountUsage,
   UserInputQuestion,
   UserInputResult,
 } from './api/contracts.js';
@@ -104,6 +105,7 @@ export interface SessionState {
   onImageAnalysis?: (activeImageCount: number) => void;
   onImageGeneration?: (active: boolean) => void;
   onRecovery?: (status: TurnRecoveryStatus) => void;
+  onAccountUsage?: (usage: AccountUsage) => void;
   onToolEvent: ((event: { call: ToolCall; result: unknown }) => void) | null;
 
 
