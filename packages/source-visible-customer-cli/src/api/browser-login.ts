@@ -334,7 +334,7 @@ export async function loginViaBrowser(
       shutDownServer(server);
       reject(
         new Error(
-          'Sign-in timed out. Authorization codes last 10 minutes — run `ai` again to start over.',
+          'Sign-in timed out. Authorization codes last 10 minutes - run `ai` again to start over.',
         ),
       );
     }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);

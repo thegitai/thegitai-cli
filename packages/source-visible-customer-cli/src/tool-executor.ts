@@ -1,3 +1,4 @@
+import type { UserInputQuestion } from './api/contracts.js';
 import { isMcpToolName } from './mcp-types.js';
 import { sessionMcp } from './mcp-client.js';
 import {
@@ -32,7 +33,9 @@ import { dispatchTool } from './tools/index.js';
 import { PATH_REPAIRING_EDIT_TOOLS, repairFilePath } from './tools/path-suggest.js';
 import {
   invalidateShellDiagnosticsCache,
+  runBatchDiagnostics,
   runShellDiagnostics,
+  type EditDiagnosticsPlan,
 } from './tools/shell-diagnostics.js';
 import type { ToolResponse } from './tools/types.js';
 import type { SessionState } from './session.js';
@@ -161,7 +164,7 @@ async function collectTrackedCommandMutations({
     beforeHash: record.beforeHash,
     afterHash: record.afterHash,
   }));
-  result.diagnostics = runShellDiagnostics(session.rootDir);
+  result.diagnostics = await runShellDiagnostics(session.rootDir);
 }
 
 export async function collectBackgroundJobUiKillMutations({
@@ -305,6 +308,7 @@ function recordAssistantEdit(
 export async function executeLocalToolCall(
   session: SessionState,
   call: ToolCall,
+  diagnosticsPlan?: EditDiagnosticsPlan,
 ): Promise<ToolResponse> {
   session.turnAbortSignal?.throwIfAborted();
   session.onStatus(formatToolCallForStatus(call, session.mcp?.label(call.name)));
@@ -365,12 +369,17 @@ export async function executeLocalToolCall(
       grants: session.grants,
       requestPermission: session.requestPermission,
       requestSudoPassword: session.requestSudoPassword,
+      requestUserInput: session.requestUserInput
+        ? (request: { questions: UserInputQuestion[] }) =>
+            session.requestUserInput!(request, session.turnAbortSignal)
+        : null,
       onStatus: session.onStatus,
       editJournal: session.clientState.editJournal,
       safety: session.clientState.safety,
       currentTurnId: session.turnState.id,
       currentToolCallId: call.id,
       env: session.env,
+      diagnosticsPlan,
       markEditReverted: (editId: string, toolCallId: string) => {
         const record = session.clientState.editJournal.find((entry) => entry.id === editId);
         if (record) {
@@ -380,6 +389,7 @@ export async function executeLocalToolCall(
       },
     };
     const result = await dispatchTool(context, call);
+    await checkBatchWhenLastEditDidNot(session, result, diagnosticsPlan);
     recordAssistantEdit(session, call, result, beforeEditSnapshot);
     if (result && typeof result === 'object' && commandTracker) {
       await collectTrackedCommandMutations({
@@ -449,7 +459,20 @@ export async function executeLocalToolCall(
       },
       error: error instanceof Error ? error.message : String(error),
     };
+    await checkBatchWhenLastEditDidNot(session, result, diagnosticsPlan);
     session.onToolEvent?.({ call, result });
     return result;
   }
+}
+
+export async function checkBatchWhenLastEditDidNot(
+  session: Pick<SessionState, 'rootDir' | 'turnAbortSignal'>,
+  result: unknown,
+  plan: EditDiagnosticsPlan | undefined,
+): Promise<void> {
+  if (!plan?.files?.length || !result || typeof result !== 'object') return;
+  if (session.turnAbortSignal?.aborted) return;
+  const existing = (result as { diagnostics?: { available?: unknown } }).diagnostics;
+  if (existing && typeof existing.available === 'boolean') return;
+  (result as { diagnostics?: unknown }).diagnostics = await runBatchDiagnostics(session.rootDir, plan.files);
 }

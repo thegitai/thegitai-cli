@@ -175,13 +175,15 @@ function shouldShowCommandPalette(state: {
   jobsPickerOpen: boolean;
   modelPickerOpen: boolean;
   resumePickerOpen: boolean;
+  skillsPickerOpen?: boolean;
 }): boolean {
   if (
     state.busy ||
     state.exiting ||
     state.jobsPickerOpen ||
     state.modelPickerOpen ||
-    state.resumePickerOpen
+    state.resumePickerOpen ||
+    state.skillsPickerOpen
   ) {
     return false;
   }
@@ -239,6 +241,7 @@ function pasteTextFromClipboard(
     current.jobsPickerOpen ||
     current.modelPickerOpen ||
     current.resumePickerOpen ||
+    current.skillsPickerOpen ||
     current.sudoPrompt
   ) {
     return;
@@ -600,7 +603,7 @@ export function handleShellKeyEvent(
       store.update((current) => {
         const options = buildModelPickerOptions(Number(current.currentModelId ?? 0), current.serverModels ?? []);
         const model = options[current.modelPickerIndex];
-        if (!model) return current;
+        if (!model || model.disabled || model.group === 'auto') return current;
         const efforts = current.modelPickerEfforts ?? {};
         return {
           ...current,
@@ -669,6 +672,36 @@ export function handleShellKeyEvent(
     return;
   }
 
+
+  if (state.skillsPickerOpen) {
+    if (key.escape) {
+      handlers.onLiveFrameShapeChange();
+      store.update((current) => ({ ...current, skillsPickerOpen: false }));
+      return;
+    }
+    if (key.upArrow || key.downArrow) {
+      store.update((current) => {
+        const count = (current.skillsPickerItems ?? []).length;
+        const next = (current.skillsPickerIndex ?? 0) + (key.upArrow ? -1 : 1);
+        return { ...current, skillsPickerIndex: Math.max(0, Math.min(next, count - 1)) };
+      });
+      return;
+    }
+    if (key.returnKey) {
+      const item = (state.skillsPickerItems ?? [])[state.skillsPickerIndex ?? 0];
+      if (!item?.usable) return;
+      const input = `/${item.name} `;
+      handlers.onLiveFrameShapeChange();
+      store.update((current) => ({
+        ...current,
+        commandCursor: 0,
+        cursor: input.length,
+        input,
+        skillsPickerOpen: false,
+      }));
+    }
+    return;
+  }
 
   if (state.shortcutsOpen) {
     if (key.escape || key.returnKey || key.input === '?' || key.input === 'q') {

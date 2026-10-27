@@ -107,7 +107,7 @@ const UPDATE_KEY_HINT = '↑/↓ choose  •  Enter accepts  •  Ctrl+C quits';
 function formatUpdateHeader(offer: UpdateOffer): string {
   return [
     '',
-    `  ${chalk.yellow('✨ Update available')} — ${chalk.dim(
+    `  ${chalk.yellow('✨ Update available')} - ${chalk.dim(
       offer.currentVersion,
     )} → ${chalk.bold(offer.latestVersion)}`,
     '',
@@ -349,7 +349,7 @@ export async function offerUpdateAtStartup({
   if (answer === 'skip') {
     write(
       `\n  ${chalk.yellow(
-        `Continuing on ${offer.currentVersion} — you'll be asked again next time.`,
+        `Continuing on ${offer.currentVersion} - you'll be asked again next time.`,
       )}\n\n`,
     );
     return 'skipped';

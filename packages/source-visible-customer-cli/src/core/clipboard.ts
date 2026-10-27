@@ -180,7 +180,7 @@ function readClipboardWindows(): ClipboardImageResult {
     }
     const detail = [err?.message, err?.stderr?.toString?.()?.trim()]
       .filter(Boolean)
-      .join(' — ');
+      .join(' - ');
     throw new ClipboardError(
       `Failed to read clipboard image on Windows: ${detail || 'unknown error'}`,
       'READ_FAILED',

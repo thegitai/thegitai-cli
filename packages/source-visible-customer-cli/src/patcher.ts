@@ -24,6 +24,7 @@ import {
   isInsideTheGitAiScratch,
   isWithinSessionScratchDir,
 } from './scratch-dir.js';
+import { isInsidePersonalSkills } from './skills/discovery.js';
 import { isTuiMode } from './runtime-mode.js';
 import { truncate } from './utils.js';
 
@@ -194,7 +195,7 @@ function expandScratchPath(filePath: string): string {
 
 
 
-export type ProjectPathKind = 'project' | 'scratch' | 'outside';
+export type ProjectPathKind = 'project' | 'scratch' | 'skills' | 'outside';
 
 export function classifyProjectPath(
   rootDir: string,
@@ -212,6 +213,7 @@ export function classifyProjectPath(
   if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
     return 'project';
   }
+  if (isInsidePersonalSkills(absPath)) return 'skills';
   return 'outside';
 }
 

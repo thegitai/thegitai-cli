@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { decodeFrames, encodeFrame, fragmentPayload, MAX_FRAME_BYTES } from '../src/browser/framing.js';
+import { chromeProfileLabel } from '../src/browser/chrome-profiles.js';
 import {
   BROWSER_PROTOCOL_VERSION,
   browserRuntimeDir,
@@ -41,7 +42,9 @@ const sessions = new Map<string, SessionLink>();
 const runtimeDir = browserRuntimeDir(process.env);
 let extensionVersion = '';
 let extensionProfileId = '';
+let extensionProfileLabel = '';
 let extensionPlatform = '';
+let extensionLastFocusedAt = 0;
 
 function log(message: string): void {
   process.stderr.write(`[thegitai-browser-host] ${message}\n`);
@@ -93,10 +96,14 @@ process.stdin.on('end', () => {
 
 
 
-function describeParentBrowser(): { browser: string; profile: string } {
+function describeParentBrowser(): { browser: string; profile: string; userDataDir: string } {
   const cmdline =
     process.platform === 'win32' ? windowsParentCommandLine() : unixParentCommandLine();
-  return describeFromCommandLine(cmdline);
+  const userDataArg = cmdline.find((part) => part.startsWith('--user-data-dir='));
+  return {
+    ...describeFromCommandLine(cmdline),
+    userDataDir: userDataArg ? userDataArg.slice('--user-data-dir='.length) : '',
+  };
 }
 
 
@@ -215,6 +222,7 @@ const parent = describeParentBrowser();
 
 
 
+
 function browserKey(): string {
   const seed = extensionProfileId || `${parent.browser} ${parent.profile}`;
   return crypto.createHash('sha256').update(seed).digest('hex').slice(0, 12);
@@ -228,11 +236,13 @@ function identity() {
 
 
     profile:
-      parent.profile !== 'Default' || !extensionProfileId
+      extensionProfileLabel ||
+      (parent.profile !== 'Default' || !extensionProfileId
         ? parent.profile
-        : `profile ${extensionProfileId.slice(0, 6)}`,
+        : `profile ${extensionProfileId.slice(0, 6)}`),
     platform: extensionPlatform || process.platform,
     extensionVersion,
+    ...(extensionLastFocusedAt > 0 ? { lastFocusedAt: extensionLastFocusedAt } : {}),
   };
 }
 
@@ -242,10 +252,19 @@ function handleExtensionFrame(frame: any): void {
   if (frame?.t === 'hello') {
     extensionVersion = String(frame.extensionVersion ?? '');
     extensionProfileId = String(frame.profileId ?? '');
+    extensionProfileLabel = /^[0-9a-f-]{36}$/i.test(extensionProfileId)
+      ? chromeProfileLabel(extensionProfileId, parent.userDataDir)
+      : '';
     extensionPlatform = String(frame.platform ?? '');
+    extensionLastFocusedAt = Number(frame.lastFocusedAt) || 0;
     writeToExtension({ t: 'hello', protocol: BROWSER_PROTOCOL_VERSION });
     publishSessions();
 
+    for (const link of sessions.values()) sendHello(link);
+    return;
+  }
+  if (frame?.t === 'focus') {
+    extensionLastFocusedAt = Number(frame.at) || extensionLastFocusedAt;
     for (const link of sessions.values()) sendHello(link);
     return;
   }

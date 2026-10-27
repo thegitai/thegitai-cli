@@ -9,7 +9,12 @@ import {
 import type { ServerModelInfo } from '../../api/models.js';
 import type { SessionMetadata } from '../../session-store.js';
 import { singleLinePreview, truncate } from '../../utils.js';
-import { formatClientTokenUsage } from '../repl.js';
+import {
+  buildModelPickerOptions,
+  formatClientTokenUsage,
+  PAUSED_MODELS_NOTE,
+  pausedModelCount,
+} from '../repl.js';
 import {
   getHiddenSlashCommandCount,
   getSlashCommandSuggestions,
@@ -35,6 +40,11 @@ import {
   type ShortcutGroup,
 } from './shortcuts.js';
 import type { TuiFrame, TuiLine, TuiSection, TuiSpan } from './types.js';
+import {
+  SKILLS_PICKER_ADD_HINT,
+  SKILLS_PICKER_GROUP_TITLES,
+  type SkillsPickerItem,
+} from '../../skills-command.js';
 import {
   buildUserInputOverlayLines,
   type UserInputPromptState,
@@ -103,6 +113,8 @@ export interface BackgroundJobDisplay {
 export interface ShellState {
 
   recoveryStatus?: string;
+  usageNotice?: TranscriptEntryDraft | null;
+  plan?: 'free' | 'plus' | 'pro';
   activeTurnInput: string;
   activeTurnInputPreformatted?: boolean;
   agentMode: import('../../agent-mode.js').AgentMode;
@@ -151,6 +163,9 @@ export interface ShellState {
   reasoningEffort?: ReasoningEffort;
 
   shortcutsOpen?: boolean;
+  skillsPickerOpen?: boolean;
+  skillsPickerIndex?: number;
+  skillsPickerItems?: SkillsPickerItem[];
 
   transientStatus?: string | null;
   projectRoot: string;
@@ -232,7 +247,7 @@ const APPROVAL_ACCENT_COLOR = 'cyan';
 
 const SUDO_PASSWORD_ASSURANCE =
   'The model never sees this. Your password goes straight to sudo on this ' +
-  'computer, then is discarded — never sent to our servers, saved, or logged.';
+  'computer, then is discarded - never sent to our servers, saved, or logged.';
 const SUDO_ASSURANCE_COLOR = 'ansi256(248)';
 
 
@@ -285,7 +300,7 @@ const MODEL_PICKER_PANEL_MAX_WIDTH = 144;
 const MODEL_PICKER_PANEL_MARGIN_LINES = 2;
 const MODEL_PICKER_BORDER_COLOR = 'cyan';
 const MODEL_PICKER_ACCENT_COLOR = 'cyan';
-const MODEL_PICKER_HIGHLIGHT_BG = 'ansi256(87)';
+const MODEL_PICKER_LOCKED_COLOR = 'ansi256(247)';
 const MODEL_PICKER_META_INDENT = '     ';
 
 
@@ -491,21 +506,6 @@ export function formatPromptSessionIdLabel(
   sessionId: string,
 ): string {
   return showSessionId ? String(sessionId ?? '').trim() : '';
-}
-
-function buildModelPickerOptions(
-  currentModelId: number,
-  serverModels: ServerModelInfo[],
-) {
-  return serverModels.map((model) => ({
-    id: model.id,
-    label: model.label,
-    publicId: model.id,
-    costRating: model.costRating,
-    current: model.id === currentModelId,
-    disabled: false,
-    note: model.description,
-  }));
 }
 
 export { getSlashCommandSuggestions };
@@ -1043,6 +1043,12 @@ export function fitComposerFooterRow({
   return { ...chosen, gap };
 }
 
+function planSpans(plan: ShellState['plan']): TuiSpan[] {
+  if (plan === 'plus') return [span(' Plus', { color: 'cyan', bold: true })];
+  if (plan === 'pro') return [span(' Pro', { color: 'ansi256(178)', bold: true })];
+  return [];
+}
+
 function composerFooterLines(state: ShellState, contentWidth: number): TuiLine[] {
   const visibleSessionId = formatPromptSessionIdLabel(
     state.showSessionId,
@@ -1052,6 +1058,7 @@ function composerFooterLines(state: ShellState, contentWidth: number): TuiLine[]
   const lines: TuiLine[] = [
     line(
       span('TheGitAI', { color: 'cyan', bold: true }),
+      ...planSpans(state.plan),
       span(' • ', { color: 'gray', dim: true }),
       span(formatPromptDirectoryLabel(state.projectRoot), { color: 'cyan' }),
       ...(transientStatus
@@ -1112,7 +1119,8 @@ function composerFooterModeLines(
   usageSpans: TuiSpan[],
 ): TuiLine[] {
   const effort = REASONING_EFFORT_LABELS[state.reasoningEffort ?? 'default'];
-  const effortText = ` · ${effort} effort`;
+  const onAuto = state.serverModels.some((model) => model.id === state.currentModelId && model.auto);
+  const effortText = onAuto ? '' : ` · ${effort} effort`;
   const modeLabels = agentModeLabelTiers(state.agentMode).map((label) => `Mode: ${label}`);
   const modeWidth = displayWidth(modeLabels[0]!);
   const separateUsage = usageWidth > 0 && modeWidth + usageWidth > contentWidth;
@@ -1432,6 +1440,10 @@ function buildLiveLines(
   if (state.recoveryStatus) {
     lines.push(...buildRecoveryStatusLines(state.recoveryStatus, width));
   }
+  if (state.usageNotice) {
+    lines.push(plainLine(''));
+    lines.push(...renderTranscriptEntryLines(state.usageNotice, width));
+  }
 
 
 
@@ -1559,21 +1571,18 @@ interface ModelPickerOptionRow {
   costRating: number;
   current: boolean;
   disabled: boolean;
+  group: 'auto' | 'models';
   id: number;
   label: string;
   note: string;
   publicId: number;
 }
 
-function padSpansToInnerWidth(
-  spans: TuiSpan[],
-  innerWidth: number,
-  fill: Partial<Omit<TuiSpan, 'text'>>,
-): TuiSpan[] {
+function padSpansToInnerWidth(spans: TuiSpan[], innerWidth: number): TuiSpan[] {
   const used = spans.reduce((total, part) => total + displayWidth(part.text), 0);
   const pad = Math.max(0, innerWidth - used);
   if (pad === 0) return spans;
-  return [...spans, span(' '.repeat(pad), fill)];
+  return [...spans, span(' '.repeat(pad))];
 }
 
 function modelPickerPanelSideLine(
@@ -1586,12 +1595,14 @@ function modelPickerPanelSideLine(
 const MODEL_PICKER_COST_WIDTH = 6;
 const MODEL_PICKER_MODEL_MIN_WIDTH = 42;
 const MODEL_PICKER_MODEL_MAX_WIDTH = 54;
-const MODEL_PICKER_SEPARATOR = ' │ ';
+const MODEL_PICKER_COLUMN_GAP = '   ';
 const MODEL_PICKER_WIDE_MIN_WIDTH = 78;
 
 function modelPickerTopBorder(panelWidth: number): TuiLine {
-  const fullTitle = ' TheGitAI - Model Selection ';
-  const compactTitle = ' Model Selection ';
+  return pickerTopBorder(panelWidth, ' TheGitAI - Model Selection ', ' Model Selection ');
+}
+
+function pickerTopBorder(panelWidth: number, fullTitle: string, compactTitle: string): TuiLine {
   const title = panelWidth >= fullTitle.length + 4 ? fullTitle : compactTitle;
   const available = Math.max(0, panelWidth - 2 - [...title].length);
   const left = Math.floor(available / 2);
@@ -1626,7 +1637,7 @@ function modelPickerCostText(rating: number): string {
 function modelPickerModelWidth(innerWidth: number): number {
   return Math.min(MODEL_PICKER_MODEL_MAX_WIDTH, Math.max(
     MODEL_PICKER_MODEL_MIN_WIDTH,
-    innerWidth - MODEL_PICKER_COST_WIDTH - MODEL_PICKER_SEPARATOR.length * 2 - 18,
+    innerWidth - MODEL_PICKER_COST_WIDTH - MODEL_PICKER_COLUMN_GAP.length * 2 - 18,
   ));
 }
 
@@ -1636,7 +1647,7 @@ function modelPickerNotesWidth(innerWidth: number): number {
     innerWidth -
       modelPickerModelWidth(innerWidth) -
       MODEL_PICKER_COST_WIDTH -
-      MODEL_PICKER_SEPARATOR.length * 2,
+      MODEL_PICKER_COLUMN_GAP.length * 2,
   );
 }
 
@@ -1647,18 +1658,20 @@ function modelPickerModelSpans(
   width: number,
   showCurrentTag: boolean,
   labelStyle: Partial<Omit<TuiSpan, 'text'>>,
-  selectedStyle: Partial<Omit<TuiSpan, 'text'>>,
 ): TuiSpan[] {
   const tag = option.current && showCurrentTag ? ' (current)' : '';
-  const effortText = ` · ${REASONING_EFFORT_LABELS[effort]}`;
+  const effortText = option.group === 'auto' || effort === 'default'
+    ? ''
+    : ` · ${REASONING_EFFORT_LABELS[effort]}`;
   const nameWidth = Math.max(1, width - displayWidth(tag + effortText) - 2);
   const label = `${selected ? '▶ ' : '  '}${fitModelLabel(option.label, nameWidth)}`;
   const used = displayWidth(label + effortText + tag);
+  const locked = option.disabled ? { color: MODEL_PICKER_LOCKED_COLOR } : null;
   return [
-    span(label, { ...labelStyle, ...selectedStyle }),
-    span(effortText, { color: mutedColor(), bold: selected, ...selectedStyle }),
-    span(tag, { color: 'gray', ...selectedStyle }),
-    span(' '.repeat(Math.max(0, width - used)), selectedStyle),
+    span(label, labelStyle),
+    span(effortText, locked ?? { color: mutedColor(), bold: selected }),
+    span(tag, locked ?? { color: 'gray' }),
+    span(' '.repeat(Math.max(0, width - used))),
   ];
 }
 
@@ -1668,12 +1681,8 @@ function modelPickerItemLines(
   effort: ReasoningEffort,
   innerWidth: number,
 ): TuiLine[] {
-  const selectedStyle = selected ? { bgColor: MODEL_PICKER_HIGHLIGHT_BG } : {};
-  const labelStyle = option.disabled
-    ? { color: 'gray' }
-    : selected
-      ? { color: 'cyan', bold: true }
-      : {};
+  const lockedStyle = option.disabled ? { color: MODEL_PICKER_LOCKED_COLOR } : undefined;
+  const labelStyle = lockedStyle ?? (selected ? { color: 'cyan', bold: true } : {});
   const cost = modelPickerCostText(option.costRating);
 
   if (innerWidth < MODEL_PICKER_WIDE_MIN_WIDTH) {
@@ -1687,14 +1696,13 @@ function modelPickerItemLines(
         modelWidth,
         false,
         labelStyle,
-        selectedStyle,
       ),
-      span('  ', selectedStyle),
-      modelPickerCell(cost, costWidth, selectedStyle),
+      span('  '),
+      modelPickerCell(cost, costWidth, lockedStyle),
     ];
     return [
       modelPickerPanelSideLine(
-        line(...padSpansToInnerWidth(row, innerWidth, selectedStyle)),
+        line(...padSpansToInnerWidth(row, innerWidth)),
         innerWidth,
       ),
     ];
@@ -1708,36 +1716,63 @@ function modelPickerItemLines(
       modelPickerModelWidth(innerWidth),
       true,
       labelStyle,
-      selectedStyle,
     ),
-    span(MODEL_PICKER_SEPARATOR, { color: 'gray', ...selectedStyle }),
-    modelPickerCell(cost, MODEL_PICKER_COST_WIDTH, selectedStyle),
-    span(MODEL_PICKER_SEPARATOR, { color: 'gray', ...selectedStyle }),
-    modelPickerCell(option.note, modelPickerNotesWidth(innerWidth), {
-      color: 'gray',
-      ...selectedStyle,
-    }),
+    span(MODEL_PICKER_COLUMN_GAP),
+    modelPickerCell(cost, MODEL_PICKER_COST_WIDTH, lockedStyle),
+    span(MODEL_PICKER_COLUMN_GAP),
+    modelPickerCell(option.note, modelPickerNotesWidth(innerWidth), lockedStyle ?? { color: 'gray' }),
   ];
   return [
     modelPickerPanelSideLine(
-      line(...padSpansToInnerWidth(row, innerWidth, selectedStyle)),
+      line(...padSpansToInnerWidth(row, innerWidth)),
       innerWidth,
     ),
   ];
 }
 
-function modelPickerHeaderLine(innerWidth: number): TuiLine {
+function modelPickerHeadingLine(title: string, innerWidth: number, withColumns: boolean): TuiLine {
   const heading = { color: MODEL_PICKER_ACCENT_COLOR, bold: true };
-  if (innerWidth < MODEL_PICKER_WIDE_MIN_WIDTH) {
-    return line(modelPickerCell('Model · effort', Math.max(1, innerWidth), heading));
+  if (!withColumns || innerWidth < MODEL_PICKER_WIDE_MIN_WIDTH) {
+    return line(modelPickerCell(title, Math.max(1, innerWidth), heading));
   }
+  const muted = { color: 'gray' };
   return line(
-    modelPickerCell('Model · effort', modelPickerModelWidth(innerWidth), heading),
-    span(MODEL_PICKER_SEPARATOR, { color: 'gray' }),
-    modelPickerCell('Cost', MODEL_PICKER_COST_WIDTH, heading),
-    span(MODEL_PICKER_SEPARATOR, { color: 'gray' }),
-    modelPickerCell('Notes', modelPickerNotesWidth(innerWidth), heading),
+    modelPickerCell(title, modelPickerModelWidth(innerWidth), heading),
+    span(MODEL_PICKER_COLUMN_GAP),
+    modelPickerCell('Cost', MODEL_PICKER_COST_WIDTH, muted),
+    span(MODEL_PICKER_COLUMN_GAP),
+    modelPickerCell('Notes', modelPickerNotesWidth(innerWidth), muted),
   );
+}
+
+type ModelPickerDisplayRow =
+  | { kind: 'heading'; title: string; withColumns: boolean }
+  | { kind: 'gap' }
+  | { kind: 'paused'; text: string }
+  | { kind: 'option'; index: number };
+
+function modelPickerDisplayRows(
+  options: ModelPickerOptionRow[],
+  pausedCount: number,
+  innerWidth: number,
+): ModelPickerDisplayRow[] {
+  const rows: ModelPickerDisplayRow[] = [];
+  const autoIndexes = options.flatMap((option, index) => (option.group === 'auto' ? [index] : []));
+  const modelIndexes = options.flatMap((option, index) => (option.group === 'models' ? [index] : []));
+  if (autoIndexes.length) {
+    rows.push({ kind: 'heading', title: 'Auto', withColumns: true });
+    rows.push(...autoIndexes.map((index) => ({ kind: 'option' as const, index })));
+  }
+  if (modelIndexes.length || pausedCount > 0) {
+    if (rows.length) rows.push({ kind: 'gap' });
+    rows.push({ kind: 'heading', title: 'Models', withColumns: rows.length === 0 });
+    rows.push(...modelIndexes.map((index) => ({ kind: 'option' as const, index })));
+    if (pausedCount > 0) {
+      const lines = wrapText(PAUSED_MODELS_NOTE, Math.max(1, innerWidth - 2));
+      rows.push(...lines.map((text) => ({ kind: 'paused' as const, text })));
+    }
+  }
+  return rows;
 }
 
 function buildModelPickerPanel(
@@ -1746,18 +1781,21 @@ function buildModelPickerPanel(
   width: number,
   availableHeight: number,
   efforts: ProjectModelEfforts = {},
+  pausedCount = 0,
 ): TuiLine[] {
   const panelWidth = Math.max(28, Math.min(width, MODEL_PICKER_PANEL_MAX_WIDTH));
   const innerWidth = Math.max(1, panelWidth - 4);
-  const showEffortDetails = options.length + 10 <= availableHeight;
-  const fixedLineCount = showEffortDetails ? 10 : 7;
-  const visibleCount = Math.min(options.length, Math.max(1, availableHeight - fixedLineCount));
-  const firstVisible = Math.max(0, Math.min(selectedIndex - visibleCount + 1, options.length - visibleCount));
-  const visibleOptions = options.slice(firstVisible, firstVisible + visibleCount);
-  const compactBodyLineCount = visibleOptions.length + fixedLineCount;
-  const spacerLineCount = Math.max(0, visibleOptions.length - 1);
-  const useRowSpacing = compactBodyLineCount + spacerLineCount <= availableHeight;
-  const bodyLineCount = compactBodyLineCount + (useRowSpacing ? spacerLineCount : 0);
+  const rows = modelPickerDisplayRows(options, pausedCount, innerWidth);
+  const showEffortDetails = rows.length + 8 <= availableHeight;
+  const fixedLineCount = showEffortDetails ? 8 : 5;
+  const visibleCount = Math.min(rows.length, Math.max(1, availableHeight - fixedLineCount));
+  const selectedRow = Math.max(
+    0,
+    rows.findIndex((row) => row.kind === 'option' && row.index === selectedIndex),
+  );
+  const firstVisible = Math.max(0, Math.min(selectedRow - visibleCount + 1, rows.length - visibleCount));
+  const visibleRows = rows.slice(firstVisible, firstVisible + visibleCount);
+  const bodyLineCount = visibleRows.length + fixedLineCount;
   const marginLineCount = Math.max(
     0,
     Math.min(
@@ -1769,34 +1807,51 @@ function buildModelPickerPanel(
     { length: marginLineCount },
     () => plainLine(''),
   );
-  const body: TuiLine[] = [
-    modelPickerTopBorder(panelWidth),
-    modelPickerPanelSideLine(modelPickerHeaderLine(innerWidth), innerWidth),
-    modelPickerDivider(panelWidth),
-  ];
-  visibleOptions.forEach((option, index) => {
-    body.push(...modelPickerItemLines(option, firstVisible + index === selectedIndex, projectModelEffort(efforts, option.publicId), innerWidth));
-    if (useRowSpacing && index < visibleOptions.length - 1) {
+  const body: TuiLine[] = [modelPickerTopBorder(panelWidth)];
+  for (const row of visibleRows) {
+    if (row.kind === 'heading') {
+      body.push(modelPickerPanelSideLine(modelPickerHeadingLine(row.title, innerWidth, row.withColumns), innerWidth));
+    } else if (row.kind === 'gap') {
       body.push(modelPickerPanelSideLine(plainLine(''), innerWidth));
+    } else if (row.kind === 'paused') {
+      body.push(modelPickerPanelSideLine(plainLine(fitLine(`  ${row.text}`, innerWidth), { color: 'gray' }), innerWidth));
+    } else {
+      const option = options[row.index]!;
+      body.push(...modelPickerItemLines(option, row.index === selectedIndex, projectModelEffort(efforts, option.publicId), innerWidth));
     }
-  });
-  const selectedEffort = projectModelEffort(efforts, options[selectedIndex]?.publicId ?? 0);
+  }
+  const selected = options[selectedIndex];
+  const lockedSelection = selected?.disabled ? selected : undefined;
+  const lockedLines = lockedSelection ? wrapText(lockedSelection.note, innerWidth) : [];
+  const selectedEffort = projectModelEffort(efforts, selected?.publicId ?? 0);
+  const autoSelected = selected?.group === 'auto';
   const effortChoices = REASONING_EFFORTS.map((effort) =>
     effort === selectedEffort ? `[${REASONING_EFFORT_LABELS[effort]}]` : REASONING_EFFORT_LABELS[effort],
   ).join('  ');
-  const fullEffort = `Reasoning effort: ${effortChoices}`;
+  const fullEffort = autoSelected ? 'Reasoning effort: Auto Adjusted' : `Reasoning effort: ${effortChoices}`;
   const effortText = [...fullEffort].length <= innerWidth
     ? fullEffort
-    : `Effort: ${REASONING_EFFORT_LABELS[selectedEffort]}  ←/→`;
-  const fullHint = '↑/↓ model  •  ←/→ effort  •  Enter select/save  •  Esc cancel';
-  const compactHint = '↑↓ · ←→ · Enter · Esc';
+    : autoSelected
+      ? 'Effort: Auto Adjusted'
+      : `Effort: ${REASONING_EFFORT_LABELS[selectedEffort]}  ←/→`;
+  const effortDescription = autoSelected
+    ? 'Auto picks the model and its reasoning effort for each session.'
+    : REASONING_EFFORT_DESCRIPTIONS[selectedEffort];
+  const fullHint = autoSelected
+    ? '↑/↓ model  •  Enter select  •  Esc cancel'
+    : '↑/↓ model  •  ←/→ effort  •  Enter select/save  •  Esc cancel';
+  const compactHint = autoSelected ? '↑↓ · Enter · Esc' : '↑↓ · ←→ · Enter · Esc';
   const hint = [...fullHint].length <= innerWidth ? fullHint : compactHint;
   body.push(
     modelPickerDivider(panelWidth),
-    modelPickerPanelSideLine(plainLine(fitLine(effortText, innerWidth), { color: 'cyan', bold: true }), innerWidth),
+    lockedSelection
+      ? modelPickerPanelSideLine(plainLine(fitLine(showEffortDetails ? (lockedLines[0] ?? '') : lockedSelection.note, innerWidth), { color: 'yellow', bold: true }), innerWidth)
+      : modelPickerPanelSideLine(plainLine(fitLine(effortText, innerWidth), { color: 'cyan', bold: true }), innerWidth),
     ...(showEffortDetails ? [
       modelPickerPanelSideLine(plainLine(''), innerWidth),
-      modelPickerPanelSideLine(plainLine(fitLine(REASONING_EFFORT_DESCRIPTIONS[selectedEffort], innerWidth), { color: 'gray' }), innerWidth),
+      lockedSelection
+        ? modelPickerPanelSideLine(plainLine(fitLine(lockedLines.slice(1).join(' '), innerWidth), { color: 'yellow', bold: true }), innerWidth)
+        : modelPickerPanelSideLine(plainLine(fitLine(effortDescription, innerWidth), { color: 'gray' }), innerWidth),
       modelPickerPanelSideLine(plainLine(''), innerWidth),
     ] : []),
     modelPickerPanelSideLine(
@@ -1808,21 +1863,88 @@ function buildModelPickerPanel(
   return [...margin, ...body, ...margin];
 }
 
+const SKILLS_PICKER_PANEL_MAX_WIDTH = 96;
+const SKILLS_PICKER_DESCRIPTION_LINES = 3;
+
+function skillsPickerDetailLines(item: SkillsPickerItem, innerWidth: number): TuiLine[] {
+  const wrapped = wrapText(item.description, innerWidth);
+  const description = wrapped.length > SKILLS_PICKER_DESCRIPTION_LINES
+    ? [
+        ...wrapped.slice(0, SKILLS_PICKER_DESCRIPTION_LINES - 1),
+        fitLine(wrapped.slice(SKILLS_PICKER_DESCRIPTION_LINES - 1).join(' '), innerWidth),
+      ]
+    : wrapped;
+  const descriptionStyle = item.group === 'not-loaded' ? { color: 'yellow', bold: true } : {};
+  return [
+    ...description.map((text) => plainLine(text, descriptionStyle)),
+    ...(item.path ? [plainLine(fitLine(item.path, innerWidth), { color: 'gray' })] : []),
+    ...(item.notes.length ? [plainLine(fitLine(item.notes.join('; '), innerWidth), { color: 'gray' })] : []),
+  ];
+}
+
+export function buildSkillsPickerPanel(
+  items: SkillsPickerItem[],
+  selectedIndex: number,
+  width: number,
+  availableHeight: number,
+): TuiLine[] {
+  const panelWidth = Math.max(28, Math.min(width, SKILLS_PICKER_PANEL_MAX_WIDTH));
+  const innerWidth = Math.max(1, panelWidth - 4);
+  const side = (row: TuiLine) => modelPickerPanelSideLine(row, innerWidth);
+  const rows: Array<{ kind: 'heading'; title: string } | { kind: 'item'; index: number }> = [];
+  items.forEach((item, index) => {
+    if (items[index - 1]?.group !== item.group) {
+      rows.push({ kind: 'heading', title: SKILLS_PICKER_GROUP_TITLES[item.group] });
+    }
+    rows.push({ kind: 'item', index });
+  });
+  const detailHeight = Math.max(0, ...items.map((item) => skillsPickerDetailLines(item, innerWidth).length));
+  const selected = items[selectedIndex];
+  const detail = selected ? skillsPickerDetailLines(selected, innerWidth) : [];
+  const addHint = wrapText(SKILLS_PICKER_ADD_HINT, innerWidth);
+  const fullHint = '↑/↓ move  •  Enter use  •  Esc close';
+  const hint = [...fullHint].length <= innerWidth ? fullHint : '↑↓ · Enter · Esc';
+  const fixedLineCount = 4 + detailHeight + addHint.length + 1;
+  const visibleCount = Math.min(rows.length, Math.max(1, availableHeight - fixedLineCount));
+  const selectedRow = Math.max(0, rows.findIndex((row) => row.kind === 'item' && row.index === selectedIndex));
+  const firstVisible = Math.max(0, Math.min(selectedRow - visibleCount + 1, rows.length - visibleCount));
+  const body: TuiLine[] = [pickerTopBorder(panelWidth, ' TheGitAI - Skills ', ' Skills ')];
+  for (const row of rows.slice(firstVisible, firstVisible + visibleCount)) {
+    if (row.kind === 'heading') {
+      body.push(side(modelPickerHeadingLine(row.title, innerWidth, false)));
+      continue;
+    }
+    const item = items[row.index]!;
+    const isSelected = row.index === selectedIndex;
+    const style = !item.usable
+      ? { color: MODEL_PICKER_LOCKED_COLOR }
+      : isSelected
+        ? { color: 'cyan', bold: true }
+        : {};
+    body.push(side(plainLine(fitLine(`${isSelected ? '▶ ' : '  '}/${item.name}`, innerWidth), style)));
+  }
+  body.push(
+    modelPickerDivider(panelWidth),
+    ...detail.map(side),
+    ...Array.from({ length: detailHeight - detail.length }, () => side(plainLine(''))),
+    side(plainLine('')),
+    ...addHint.map((text) => side(plainLine(text, { color: 'gray' }))),
+    side(plainLine(fitLine(hint, innerWidth), { color: 'gray' })),
+    plainLine(`╰${'─'.repeat(panelWidth - 2)}╯`, { color: MODEL_PICKER_BORDER_COLOR }),
+  );
+  const marginLineCount = Math.max(
+    0,
+    Math.min(MODEL_PICKER_PANEL_MARGIN_LINES, Math.floor((availableHeight - body.length) / 2)),
+  );
+  const margin = Array.from({ length: marginLineCount }, () => plainLine(''));
+  return [...margin, ...body, ...margin];
+}
+
 const SHORTCUTS_PANEL_MAX_WIDTH = 96;
 const SHORTCUTS_KEY_COLUMN_MIN = 10;
 
 function shortcutsTopBorder(panelWidth: number): TuiLine {
-  const fullTitle = ' TheGitAI - Keyboard & mouse ';
-  const compactTitle = ' Shortcuts ';
-  const title = panelWidth >= fullTitle.length + 4 ? fullTitle : compactTitle;
-  const available = Math.max(0, panelWidth - 2 - [...title].length);
-  const left = Math.floor(available / 2);
-  const right = available - left;
-  return line(
-    span(`╭${'─'.repeat(left)}`, { color: MODEL_PICKER_BORDER_COLOR }),
-    span(title, { color: MODEL_PICKER_ACCENT_COLOR, bold: true }),
-    span(`${'─'.repeat(right)}╮`, { color: MODEL_PICKER_BORDER_COLOR }),
-  );
+  return pickerTopBorder(panelWidth, ' TheGitAI - Keyboard & mouse ', ' Shortcuts ');
 }
 
 
@@ -1938,38 +2060,31 @@ function commandPaletteItemLines(
   selected: boolean,
   innerWidth: number,
 ): TuiLine[] {
-  const highlight = { bgColor: MODEL_PICKER_HIGHLIGHT_BG };
   if (selected) {
     const titleSpans = padSpansToInnerWidth(
       [
         span('▌', {
           color: MODEL_PICKER_ACCENT_COLOR,
           bold: true,
-          ...highlight,
         }),
         span('▶ ', {
           color: MODEL_PICKER_ACCENT_COLOR,
           bold: true,
-          ...highlight,
         }),
         span(option.command, {
           color: MODEL_PICKER_ACCENT_COLOR,
           bold: true,
-          ...highlight,
         }),
       ],
       innerWidth,
-      highlight,
     );
     const metaSpans = padSpansToInnerWidth(
       [
-        span(`${MODEL_PICKER_META_INDENT}${option.description}`, {
+        span(fitLine(`${MODEL_PICKER_META_INDENT}${option.description}`, innerWidth), {
           color: 'gray',
-          ...highlight,
         }),
       ],
       innerWidth,
-      highlight,
     );
     return [
       modelPickerPanelSideLine(line(...titleSpans), innerWidth),
@@ -1985,7 +2100,7 @@ function commandPaletteItemLines(
       innerWidth,
     ),
     modelPickerPanelSideLine(
-      line(span(`${MODEL_PICKER_META_INDENT}${option.description}`, { color: 'gray' })),
+      line(span(fitLine(`${MODEL_PICKER_META_INDENT}${option.description}`, innerWidth), { color: 'gray' })),
       innerWidth,
     ),
   ];
@@ -2395,6 +2510,11 @@ function buildOverlayLines(
   if (state.shortcutsOpen) {
     lines.push(...buildShortcutsPanel(buildShortcutGroups(), width, height));
   }
+  if (state.skillsPickerOpen) {
+    lines.push(
+      ...buildSkillsPickerPanel(state.skillsPickerItems ?? [], state.skillsPickerIndex ?? 0, width, height),
+    );
+  }
   if (state.modelPickerOpen) {
     const options = buildModelPickerOptions(state.currentModelId, state.serverModels);
     lines.push(
@@ -2404,6 +2524,7 @@ function buildOverlayLines(
         width,
         height,
         state.modelPickerEfforts,
+        pausedModelCount(state.serverModels),
       ),
     );
   }
@@ -2509,6 +2630,7 @@ function buildOverlayLines(
     !state.busy &&
     !state.exiting &&
     !state.modelPickerOpen &&
+    !state.skillsPickerOpen &&
     !state.resumePickerOpen &&
     state.input.trimStart().startsWith('/') &&
     !state.input.includes(' ') &&
@@ -2633,6 +2755,7 @@ export function buildTuiFrame(
     !state.modelPickerOpen &&
     !state.jobsPickerOpen &&
     !state.shortcutsOpen &&
+    !state.skillsPickerOpen &&
     !overlayActive
   ) {
     const composerLines: TuiLine[] = [];
@@ -2704,7 +2827,7 @@ export function buildTuiFrame(
 
   const overlayHeight = state.userInputPrompt
     ? Math.max(0, rows - countSectionLines(sections))
-    : state.jobsPickerOpen || state.shortcutsOpen || state.modelPickerOpen
+    : state.jobsPickerOpen || state.shortcutsOpen || state.modelPickerOpen || state.skillsPickerOpen
       ? Math.max(
           Math.min(rows, JOBS_PICKER_MIN_ROWS),
           rows - countSectionLines(sections),

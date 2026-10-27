@@ -73,8 +73,12 @@ export interface BrowserBridge {
 
 
   resync(): boolean;
-  request(op: string, args?: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<any>;
-  selectBrowser(key: string): void;
+  request(
+    op: string,
+    args?: Record<string, unknown>,
+    options?: { timeoutMs?: number; browser?: string },
+  ): Promise<any>;
+  selectBrowser(key: string): boolean;
   onEvent(listener: (event: string, data: Record<string, unknown>) => void): () => void;
   close(): void;
 }
@@ -314,14 +318,22 @@ export function startBrowserBridge({
       return true;
     },
     selectBrowser(key: string) {
-      if (browsers.has(key)) selected = key;
+      if (!browsers.has(key)) return false;
+      selected = key;
+      return true;
     },
     onEvent(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
     request(op, args = {}, options = {}) {
-      const target = selected ? browsers.get(selected) : null;
+      const key = options.browser ?? selected;
+      const target = key ? browsers.get(key) : null;
+      if (!target && options.browser) {
+        return Promise.reject(
+          new BrowserBridgeError('The Chrome profile chosen for this conversation is not connected.', 'chosen_profile_missing'),
+        );
+      }
       if (!target) {
         return Promise.reject(
           new BrowserBridgeError('No browser is connected to this session.', 'not_connected'),

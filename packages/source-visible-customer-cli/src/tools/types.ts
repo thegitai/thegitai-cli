@@ -1,8 +1,10 @@
+import type { UserInputQuestion, UserInputResult } from '../api/contracts.js';
 import type { AssistantEditRecord } from '../edit-journal.js';
 import type { SudoPasswordRequester } from '../executor.js';
 import type { AgentMode } from '../agent-mode.js';
 import type { PermissionRequester, SessionGrants } from '../permissions.js';
 import type { SessionSafetyState } from '../session-safety.js';
+import type { EditDiagnosticsPlan } from './shell-diagnostics.js';
 
 export interface ToolContext {
   rootDir: string;
@@ -18,6 +20,7 @@ export interface ToolContext {
   grants?: SessionGrants;
   requestPermission: PermissionRequester | null;
   requestSudoPassword: SudoPasswordRequester | null;
+  requestUserInput?: ((request: { questions: UserInputQuestion[] }) => Promise<UserInputResult>) | null;
   onStatus: (msg: string) => void;
   editJournal?: AssistantEditRecord[];
   safety?: SessionSafetyState;
@@ -25,6 +28,7 @@ export interface ToolContext {
   currentToolCallId?: string;
   markEditReverted?: (editId: string, toolCallId: string) => void;
   env?: NodeJS.ProcessEnv;
+  diagnosticsPlan?: EditDiagnosticsPlan;
 }
 
 export type ToolFailureCategory =

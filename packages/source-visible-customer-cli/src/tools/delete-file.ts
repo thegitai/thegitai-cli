@@ -78,6 +78,6 @@ export async function deleteFile(
       : { contentOmitted: result.contentOmitted }),
     ...(result.content === undefined ? {} : { content: result.content }),
     diagnostics:
-      result.deleted && !scratchPath ? runShellDiagnostics(rootDir) : undefined,
+      result.deleted && !scratchPath ? await runShellDiagnostics(rootDir) : undefined,
   };
 }

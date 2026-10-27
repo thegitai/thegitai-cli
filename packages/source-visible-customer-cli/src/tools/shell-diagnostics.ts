@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import path from 'node:path';
 
@@ -54,44 +54,54 @@ function detectLanguageFromProject(rootDir: string): Language | null {
   return null;
 }
 
-function commandExists(cmd: string): boolean {
-  try {
-    execFileSync(cmd, ['--version'], {
-      timeout: 5000,
-      stdio: 'pipe',
-      encoding: 'utf-8',
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function runCheck(
-  cmd: string,
-  args: string[],
-  rootDir: string,
-): {
+interface CheckOutput {
   stdout: string;
   stderr: string;
   exitCode: number;
-} {
-  try {
-    const stdout = execFileSync(cmd, args, {
-      cwd: rootDir,
-      encoding: 'utf-8',
-      maxBuffer: MAX_RAW_OUTPUT,
-      timeout: CHECK_TIMEOUT,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout, stderr: '', exitCode: 0 };
-  } catch (err: any) {
-    return {
-      stdout: err.stdout ?? '',
-      stderr: err.stderr ?? '',
-      exitCode: err.status ?? 1,
-    };
+}
+
+function execCheck(
+  cmd: string,
+  args: string[],
+  options: { cwd?: string; timeout: number },
+): Promise<CheckOutput> {
+  return new Promise((resolve) => {
+    execFile(
+      cmd,
+      args,
+      {
+        cwd: options.cwd,
+        encoding: 'utf-8',
+        maxBuffer: MAX_RAW_OUTPUT,
+        timeout: options.timeout,
+      },
+      (error, stdout, stderr) => {
+        const code = (error as NodeJS.ErrnoException | null)?.code;
+        resolve({
+          stdout: String(stdout ?? ''),
+          stderr: String(stderr ?? ''),
+          exitCode: error ? (typeof code === 'number' ? code : 1) : 0,
+        });
+      },
+    );
+  });
+}
+
+const commandChecks = new Map<string, Promise<boolean>>();
+
+function commandExists(cmd: string): Promise<boolean> {
+  let check = commandChecks.get(cmd);
+  if (!check) {
+    check = execCheck(cmd, ['--version'], { timeout: 5000 }).then(
+      (result) => result.exitCode === 0,
+    );
+    commandChecks.set(cmd, check);
   }
+  return check;
+}
+
+function runCheck(cmd: string, args: string[], rootDir: string): Promise<CheckOutput> {
+  return execCheck(cmd, args, { cwd: rootDir, timeout: CHECK_TIMEOUT });
 }
 
 function parseRustDiagnostics(
@@ -140,10 +150,10 @@ function parseRustDiagnostics(
   return diagnostics;
 }
 
-function runRustCheck(rootDir: string): CodeDiagnostic[] | null {
+async function runRustCheck(rootDir: string): Promise<CodeDiagnostic[] | null> {
   if (!existsSync(path.join(rootDir, 'Cargo.toml'))) return null;
-  if (!commandExists('cargo')) return null;
-  const result = runCheck(
+  if (!(await commandExists('cargo'))) return null;
+  const result = await runCheck(
     'cargo',
     ['check', '--message-format=json', '--quiet'],
     rootDir,
@@ -177,10 +187,10 @@ function parseGoDiagnostics(output: string, rootDir: string): CodeDiagnostic[] {
   return diagnostics;
 }
 
-function runGoCheck(rootDir: string): CodeDiagnostic[] | null {
+async function runGoCheck(rootDir: string): Promise<CodeDiagnostic[] | null> {
   if (!existsSync(path.join(rootDir, 'go.mod'))) return null;
-  if (!commandExists('go')) return null;
-  const result = runCheck('go', ['build', './...'], rootDir);
+  if (!(await commandExists('go'))) return null;
+  const result = await runCheck('go', ['build', './...'], rootDir);
   return parseGoDiagnostics(`${result.stdout}\n${result.stderr}`, rootDir);
 }
 
@@ -247,13 +257,13 @@ function parsePyCompileDiagnostics(
   ];
 }
 
-function runPythonCheck(
+async function runPythonCheck(
   rootDir: string,
   filePath?: string,
-): CodeDiagnostic[] | null {
-  if (commandExists('ruff')) {
+): Promise<CodeDiagnostic[] | null> {
+  if (await commandExists('ruff')) {
     const target = filePath || '.';
-    const result = runCheck(
+    const result = await runCheck(
       'ruff',
       ['check', '--output-format=json', '--', target],
       rootDir,
@@ -261,7 +271,7 @@ function runPythonCheck(
     return parseRuffDiagnostics(result.stdout, rootDir);
   }
   if (filePath) {
-    const result = runCheck('python', ['-m', 'py_compile', filePath], rootDir);
+    const result = await runCheck('python', ['-m', 'py_compile', filePath], rootDir);
     if (result.exitCode !== 0) {
       return parsePyCompileDiagnostics(result.stderr, rootDir, filePath);
     }
@@ -297,9 +307,9 @@ function parseTscDiagnostics(
   return diagnostics;
 }
 
-function runTypeScriptCheck(rootDir: string): CodeDiagnostic[] | null {
+async function runTypeScriptCheck(rootDir: string): Promise<CodeDiagnostic[] | null> {
   if (!existsSync(path.join(rootDir, 'tsconfig.json'))) return null;
-  const result = runCheck(
+  const result = await runCheck(
     'npx',
     ['tsc', '--noEmit', '--pretty', 'false'],
     rootDir,
@@ -473,15 +483,133 @@ function runJavaScriptStaticCheck(
   return diagnostics;
 }
 
-function runJavaScriptCheck(
+const NODE_CHECKABLE_EXTENSIONS = new Set(['.js', '.mjs', '.cjs']);
+
+function stripJsonComments(text: string): string {
+  let out = '';
+  let inString = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!;
+    const next = text[index + 1];
+    if (inString) {
+      out += char;
+      if (char === '\\') {
+        out += next ?? '';
+        index += 1;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      out += char;
+    } else if (char === '/' && next === '/') {
+      while (index < text.length && text[index] !== '\n') index += 1;
+      out += '\n';
+    } else if (char === '/' && next === '*') {
+      index += 2;
+      while (index < text.length && !(text[index] === '*' && text[index + 1] === '/')) index += 1;
+      index += 1;
+    } else {
+      out += char;
+    }
+  }
+  return out.replace(/,(\s*[}\]])/g, '$1');
+}
+
+function readTsconfig(file: string): any | null {
+  try {
+    return JSON.parse(stripJsonComments(readFileSync(file, 'utf-8')));
+  } catch {
+    return null;
+  }
+}
+
+function isFile(candidate: string): boolean {
+  try {
+    return statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function resolveTsconfigExtends(fromFile: string, spec: string): string | null {
+  const fromDir = path.dirname(fromFile);
+  const bases: string[] = [];
+  if (spec.startsWith('.') || path.isAbsolute(spec)) {
+    bases.push(path.resolve(fromDir, spec));
+  } else {
+    for (let dir = fromDir; ; dir = path.dirname(dir)) {
+      bases.push(path.join(dir, 'node_modules', spec));
+      if (path.dirname(dir) === dir) break;
+    }
+  }
+  for (const base of bases) {
+    for (const candidate of [base, `${base}.json`, path.join(base, 'tsconfig.json')]) {
+      if (isFile(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+function effectiveCompilerFlag(
+  configFile: string,
+  name: string,
+  seen: Set<string> = new Set(),
+): boolean | undefined {
+  if (seen.has(configFile) || seen.size > 16) return undefined;
+  seen.add(configFile);
+  const config = readTsconfig(configFile);
+  if (!config || typeof config !== 'object') return undefined;
+  const own = config.compilerOptions?.[name];
+  if (typeof own === 'boolean') return own;
+  const parents = Array.isArray(config.extends)
+    ? config.extends
+    : typeof config.extends === 'string'
+      ? [config.extends]
+      : [];
+  for (const spec of [...parents].reverse()) {
+    if (typeof spec !== 'string') continue;
+    const parent = resolveTsconfigExtends(configFile, spec);
+    const value = parent ? effectiveCompilerFlag(parent, name, seen) : undefined;
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function hasTsCheckPragma(rootDir: string, filePath: string): boolean {
+  try {
+    const head = readFileSync(path.join(rootDir, filePath), 'utf-8').slice(0, 2000);
+    return /^(?:\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/))*\s*\/\/\s*@ts-check\b/.test(head);
+  } catch {
+    return false;
+  }
+}
+
+function typeScriptChecksJavaScript(rootDir: string, filePath: string): boolean {
+  const tsconfig = path.join(rootDir, 'tsconfig.json');
+  if (effectiveCompilerFlag(tsconfig, 'checkJs') === true) return true;
+  return effectiveCompilerFlag(tsconfig, 'allowJs') === true && hasTsCheckPragma(rootDir, filePath);
+}
+
+function javaScriptUsesProjectCheck(rootDir: string, filePath?: string): boolean {
+  if (!existsSync(path.join(rootDir, 'tsconfig.json'))) return false;
+  if (!filePath || !NODE_CHECKABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
+    return true;
+  }
+  return typeScriptChecksJavaScript(rootDir, filePath);
+}
+
+async function runJavaScriptCheck(
   rootDir: string,
   filePath?: string,
-): CodeDiagnostic[] | null {
-  if (existsSync(path.join(rootDir, 'tsconfig.json'))) {
+): Promise<CodeDiagnostic[] | null> {
+  if (javaScriptUsesProjectCheck(rootDir, filePath)) {
     return runTypeScriptCheck(rootDir);
   }
   if (filePath) {
-    const result = runCheck('node', ['--check', filePath], rootDir);
+    const result = await runCheck('node', ['--check', filePath], rootDir);
     const staticDiagnostics = runJavaScriptStaticCheck(rootDir, filePath);
     if (result.exitCode !== 0) {
       const msg = (result.stderr || result.stdout).trim();
@@ -491,7 +619,8 @@ function runJavaScriptCheck(
         {
           filePath,
           severity: 'error',
-          message: msg.split('\n').pop() ?? 'Syntax error',
+          message:
+            msg.match(/^\w*Error\b.*$/m)?.[0] ?? msg.split('\n').pop() ?? 'Syntax error',
           source: 'node',
           startLine: lineNum,
           startColumn: 1,
@@ -535,7 +664,7 @@ function formatShellDiagnosticsOutput(
     output = `Diagnostics via build check (${diagnostics.length})\n${lines.join('\n')}`;
   }
   if (otherFileErrorCount > 0) {
-    output += `\n\n${otherFileErrorCount} additional error(s) in other project files — call get_diagnostics without a filePath to see the full project picture before declaring success.`;
+    output += `\n\n${otherFileErrorCount} additional error(s) in other project files - call get_diagnostics without a filePath to see the full project picture before declaring success.`;
   }
   return output;
 }
@@ -627,6 +756,7 @@ export function invalidateShellDiagnosticsCache(
   rootDir: string,
   filePath?: string,
 ): void {
+  diagnosticsGeneration += 1;
   const prefix = `${rootDir}::`;
   if (!filePath) {
     for (const key of shellDiagnosticsCache.keys()) {
@@ -669,7 +799,7 @@ function commandScopeFor(
     case 'typescript':
       return 'project';
     case 'javascript':
-      return existsSync(path.join(rootDir, 'tsconfig.json')) ? 'project' : 'file';
+      return javaScriptUsesProjectCheck(rootDir, filePath) ? 'project' : 'file';
     case 'python':
       return filePath ? 'file' : 'project';
   }
@@ -678,7 +808,17 @@ function commandScopeFor(
 export function buildDeferredShellDiagnostics(
   trigger: DeferredShellDiagnosticsResult['trigger'],
   filePath?: string,
+  reason?: 'batch',
 ): DeferredShellDiagnosticsResult {
+  if (reason === 'batch') {
+    return {
+      provider: 'shell',
+      deferred: true,
+      trigger,
+      filePath: filePath ?? undefined,
+      output: `Diagnostics for this edit run with the last edit in this batch, which checks every file the batch changed.`,
+    };
+  }
   if (trigger === 'run_command' || trigger === 'run_node_script') {
     return {
       provider: 'shell',
@@ -699,6 +839,45 @@ export function buildDeferredShellDiagnostics(
       `${trigger} updated files without rerunning project diagnostics automatically. ` +
       `Batch related edits first, then call get_diagnostics (without a filePath for project-wide errors${filePath ? `, or with filePath="${filePath}" for this file only` : ''}) before declaring success.`,
   };
+}
+
+export interface EditDiagnosticsPlan {
+  defer?: boolean;
+  files?: string[];
+}
+
+export function readEditDiagnosticsPlan(value: unknown): EditDiagnosticsPlan | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as { defer?: unknown; files?: unknown };
+  if (raw.defer === true) return { defer: true };
+  if (!Array.isArray(raw.files)) return undefined;
+  const files = raw.files
+    .filter((file): file is string => typeof file === 'string' && file.trim() !== '')
+    .slice(0, 50);
+  return files.length ? { files } : undefined;
+}
+
+export async function diagnoseEditedFile(
+  rootDir: string,
+  filePath: string,
+  trigger: 'write_file' | 'patch_file' | 'str_replace',
+  plan?: EditDiagnosticsPlan,
+): Promise<ShellDiagnosticsResult | DeferredShellDiagnosticsResult> {
+  invalidateShellDiagnosticsCache(rootDir, filePath);
+  if (plan?.defer) return buildDeferredShellDiagnostics(trigger, filePath, 'batch');
+  return runShellDiagnostics(rootDir, filePath, 50, projectRelativeFiles(rootDir, plan?.files ?? []));
+}
+
+function projectRelativeFiles(rootDir: string, files: readonly string[]): string[] {
+  return files.map((file) => (path.isAbsolute(file) ? path.relative(rootDir, file) : file));
+}
+
+export async function runBatchDiagnostics(
+  rootDir: string,
+  files: readonly string[],
+): Promise<ShellDiagnosticsResult> {
+  const [first, ...rest] = projectRelativeFiles(rootDir, files);
+  return runShellDiagnostics(rootDir, first, 50, rest);
 }
 
 function buildUnavailableResult(
@@ -723,18 +902,22 @@ function buildUnavailableResult(
 function applyFilePathFilter(
   diagnostics: CodeDiagnostic[],
   filePath: string | undefined,
+  alsoFiles: readonly string[] = [],
 ): { focused: CodeDiagnostic[]; otherFileErrorCount: number } {
   if (!filePath) {
     return { focused: diagnostics, otherFileErrorCount: 0 };
   }
-  const normalizedTarget = filePath.replace(/^\.\//, '');
+  const normalizedTargets = [filePath, ...alsoFiles].map((target) =>
+    target.replace(/^\.\//, ''),
+  );
   const focused: CodeDiagnostic[] = [];
   let otherFileErrorCount = 0;
   for (const diagnostic of diagnostics) {
     const normalizedDiag = diagnostic.filePath.replace(/^\.\//, '');
     if (
-      normalizedDiag === normalizedTarget ||
-      normalizedDiag.endsWith(`/${normalizedTarget}`)
+      normalizedTargets.some(
+        (target) => normalizedDiag === target || normalizedDiag.endsWith(`/${target}`),
+      )
     ) {
       focused.push(diagnostic);
     } else if (diagnostic.severity === 'error') {
@@ -744,49 +927,58 @@ function applyFilePathFilter(
   return { focused, otherFileErrorCount };
 }
 
-function runDiagnosticsCommand(
+async function runDiagnosticsCommand(
   language: Language,
   rootDir: string,
   filePath: string | undefined,
-): { command: string; diagnostics: CodeDiagnostic[] | null } {
+): Promise<{ command: string; diagnostics: CodeDiagnostic[] | null }> {
   switch (language) {
     case 'rust':
       return {
         command: 'cargo check --message-format=json --quiet',
-        diagnostics: runRustCheck(rootDir),
+        diagnostics: await runRustCheck(rootDir),
       };
     case 'go':
       return {
         command: 'go build ./...',
-        diagnostics: runGoCheck(rootDir),
+        diagnostics: await runGoCheck(rootDir),
       };
     case 'python':
       return {
-        command: commandExists('ruff')
+        command: (await commandExists('ruff'))
           ? `ruff check ${filePath || '.'}`
           : `python -m py_compile ${filePath || ''}`,
-        diagnostics: runPythonCheck(rootDir, filePath),
+        diagnostics: await runPythonCheck(rootDir, filePath),
       };
     case 'typescript':
       return {
         command: 'npx tsc --noEmit',
-        diagnostics: runTypeScriptCheck(rootDir),
+        diagnostics: await runTypeScriptCheck(rootDir),
       };
     case 'javascript':
       return {
-        command: existsSync(path.join(rootDir, 'tsconfig.json'))
+        command: javaScriptUsesProjectCheck(rootDir, filePath)
           ? 'npx tsc --noEmit'
           : `node --check ${filePath || ''}`,
-        diagnostics: runJavaScriptCheck(rootDir, filePath),
+        diagnostics: await runJavaScriptCheck(rootDir, filePath),
       };
   }
 }
 
-export function runShellDiagnostics(
+interface DiagnosticsRun {
+  generation: number;
+  outcome: Promise<{ command: string; diagnostics: CodeDiagnostic[] | null }>;
+}
+
+const diagnosticsRuns = new Map<string, DiagnosticsRun>();
+let diagnosticsGeneration = 0;
+
+export async function runShellDiagnostics(
   rootDir: string,
   filePath?: string,
   limit: number = 50,
-): ShellDiagnosticsResult {
+  alsoFiles: readonly string[] = [],
+): Promise<ShellDiagnosticsResult> {
   const language = filePath
     ? detectLanguageFromFile(filePath)
     : detectLanguageFromProject(rootDir);
@@ -816,7 +1008,20 @@ export function runShellDiagnostics(
     command = cached.command;
     available = cached.available;
   } else {
-    const outcome = runDiagnosticsCommand(language, rootDir, filePath);
+    const generation = diagnosticsGeneration;
+    let run = diagnosticsRuns.get(cacheKey);
+    if (!run || run.generation !== generation) {
+      const started: DiagnosticsRun = {
+        generation,
+        outcome: runDiagnosticsCommand(language, rootDir, filePath),
+      };
+      run = started;
+      diagnosticsRuns.set(cacheKey, started);
+      void started.outcome.finally(() => {
+        if (diagnosticsRuns.get(cacheKey) === started) diagnosticsRuns.delete(cacheKey);
+      });
+    }
+    const outcome = await run.outcome;
     command = outcome.command;
     if (outcome.diagnostics === null) {
       available = false;
@@ -825,17 +1030,19 @@ export function runShellDiagnostics(
       available = true;
       rawDiagnostics = outcome.diagnostics;
     }
-    shellDiagnosticsCache.set(cacheKey, {
-      expiresAt:
-        now +
-        (scope === 'project'
-          ? PROJECT_DIAGNOSTICS_CACHE_TTL_MS
-          : FILE_DIAGNOSTICS_CACHE_TTL_MS),
-      scope,
-      command,
-      available,
-      diagnostics: rawDiagnostics,
-    });
+    if (generation === diagnosticsGeneration) {
+      shellDiagnosticsCache.set(cacheKey, {
+        expiresAt:
+          Date.now() +
+          (scope === 'project'
+            ? PROJECT_DIAGNOSTICS_CACHE_TTL_MS
+            : FILE_DIAGNOSTICS_CACHE_TTL_MS),
+        scope,
+        command,
+        available,
+        diagnostics: rawDiagnostics,
+      });
+    }
   }
 
   if (!available) {
@@ -849,6 +1056,7 @@ export function runShellDiagnostics(
   const { focused, otherFileErrorCount } = applyFilePathFilter(
     rawDiagnostics,
     filePath,
+    alsoFiles,
   );
   const limited = focused.slice(0, limit);
   const counts = countBySeverity(limited);

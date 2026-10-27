@@ -108,7 +108,7 @@ export async function restoreToCheckpoint(
   return {
     ...result,
     operation: 'restore_to_checkpoint',
-    diagnostics: runShellDiagnostics(context.rootDir),
+    diagnostics: await runShellDiagnostics(context.rootDir),
   };
 }
 
