@@ -1,7 +1,7 @@
 {
   "name": "@thegitai/cli",
-  "version": "1.0.0-preview.68",
-  "description": "TheGitAI is an agentic AI coding tool for your terminal. It reads and searches your repository, writes and edits files, runs your tests, and verifies the change before handing it back.",
+  "version": "1.4.2",
+  "description": "TheGitAI is an AI coding agent. It reads and searches your repository, writes and edits files, runs your tests, verifies the change before handing it back, and remembers your corrections between sessions.",
   "keywords": [
     "agentic-ai",
     "ai-coding-agent",
@@ -11,6 +11,7 @@
     "autonomous-agent",
     "ai-pair-programming",
     "coding-assistant",
+    "ai-memory",
     "code-assistant",
     "ai",
     "terminal",
@@ -52,11 +53,11 @@
     "@lydell/node-pty-linux-x64": "1.1.0",
     "@lydell/node-pty-win32-arm64": "1.1.0",
     "@lydell/node-pty-win32-x64": "1.1.0",
-    "@thegitai/tui-darwin-arm64": "1.0.0-preview.68",
-    "@thegitai/tui-darwin-x64": "1.0.0-preview.68",
-    "@thegitai/tui-linux-arm64": "1.0.0-preview.68",
-    "@thegitai/tui-linux-x64": "1.0.0-preview.68",
-    "@thegitai/tui-win32-x64": "1.0.0-preview.68",
+    "@thegitai/tui-darwin-arm64": "1.4.2",
+    "@thegitai/tui-darwin-x64": "1.4.2",
+    "@thegitai/tui-linux-arm64": "1.4.2",
+    "@thegitai/tui-linux-x64": "1.4.2",
+    "@thegitai/tui-win32-x64": "1.4.2",
     "@vscode/ripgrep": "1.18.0"
   },
   "devDependencies": {

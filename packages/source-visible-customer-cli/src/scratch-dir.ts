@@ -1,6 +1,7 @@
 import { chmodSync, lstatSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { scopedSessionId } from './session-context.js';
 
 
 
@@ -14,14 +15,18 @@ export function setScratchSession(sessionId: string | null): void {
   activeSessionId = String(sessionId ?? '').trim() || 'default';
 }
 
+function currentKey(): string {
+  return scopedSessionId() ?? activeSessionId;
+}
+
 function allocateSessionScratchDir(): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'thegitai-'));
-  scratchDirs.set(activeSessionId, dir);
+  scratchDirs.set(currentKey(), dir);
   return dir;
 }
 
 export function sessionScratchDir(): string {
-  return scratchDirs.get(activeSessionId) ?? allocateSessionScratchDir();
+  return scratchDirs.get(currentKey()) ?? allocateSessionScratchDir();
 }
 
 function isOwnedDirectory(dir: string): boolean {

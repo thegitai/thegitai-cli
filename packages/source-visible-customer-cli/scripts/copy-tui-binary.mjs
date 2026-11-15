@@ -14,12 +14,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const binaryName =
+  process.platform === 'win32' ? 'thegitai-tui.exe' : 'thegitai-tui';
 const targetDir = path.join(packageRoot, 'bin');
-const targetBinary = path.join(targetDir, 'thegitai-tui');
+const targetBinary = path.join(targetDir, binaryName);
 const targetExists = existsSync(targetBinary);
 
 const tuiPackageDir = path.join(packageRoot, '..', 'thegitai-tui');
-const builtBinary = path.join(tuiPackageDir, 'bin', 'thegitai-tui');
+const builtBinary = path.join(tuiPackageDir, 'bin', binaryName);
 
 const sourceCandidates = [
   process.env.THEGITAI_TUI_BINARY,
@@ -74,13 +76,13 @@ if (sourceIsNewer) {
   const tempBinary = path.join(targetDir, `.thegitai-tui-${process.pid}.tmp`);
   try {
     copyFileSync(sourceBinary, tempBinary);
-    chmodSync(tempBinary, 0o755);
+    if (process.platform !== 'win32') chmodSync(tempBinary, 0o755);
     renameSync(tempBinary, targetBinary);
   } catch (error) {
     if (existsSync(tempBinary)) {
       unlinkSync(tempBinary);
     }
-    if (error && error.code === 'ETXTBSY' && targetExists) {
+    if (error && ['ETXTBSY', 'EBUSY', 'EPERM'].includes(error.code) && targetExists) {
       console.warn(
         'thegitai-tui binary is in use; kept the existing copy. Quit running CLI sessions, then rerun npm run build:client for the latest renderer.',
       );

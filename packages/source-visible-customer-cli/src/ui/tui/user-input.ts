@@ -804,16 +804,19 @@ function buildUserInputWindow(
     offset,
     offset + visibleRowBudget,
   );
+  const above = offset;
+  const below = content.lines.length - offset - visible.length;
+  const more = [
+    ...(above > 0 ? [`↑ ${above} more above`] : []),
+    ...(below > 0 ? [`↓ ${below} more below`] : []),
+  ];
+  const keys = above > 0 && below > 0 ? 'PgUp/PgDn' : below > 0 ? 'PgDn' : 'PgUp';
   return {
     lines: [
       ...visible,
-      plainLine(
-        fitText(
-          `Rows ${offset + 1}–${offset + visible.length} of ${content.lines.length} · PgUp/PgDn scroll`,
-          width,
-        ),
-        { color: 'gray' },
-      ),
+      plainLine(fitText(`${more.join(' · ')} · ${keys}`, width), {
+        color: below > 0 ? 'cyan' : 'gray',
+      }),
       content.footer,
     ],
     maxOffset,

@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { ClientEnvironmentContext } from './api/contracts.js';
 import { ensureSessionScratchDir } from './scratch-dir.js';
 import { browserExtensionSeen } from './browser/session-bridge.js';
+import { computerHelperPath } from './tools/computer.js';
 
 const PACKAGE_MANAGER_CANDIDATES = [
   'apt',
@@ -179,5 +180,6 @@ export function collectClientEnvironment(
     scratchDir: options.scratchDir ?? ensureSessionScratchDir(),
     browserExtensionSeen:
       options.browserExtensionSeen ?? browserExtensionSeen(env),
+    computerControl: (platform === 'linux' || platform === 'darwin') && Boolean(computerHelperPath(env)),
   };
 }

@@ -73,6 +73,7 @@ interface ShellStoreLike {
 }
 
 export interface ShellInputHandlers {
+  getModelPickerPageSize?: () => number;
   getApprovalScrollLimit?: () => number;
   getComposerInputWidth?: () => number;
   getTranscriptScrollLimit?: () => number;
@@ -230,11 +231,27 @@ function insertPastedText(
   });
 }
 
+function appendToDenialNote(store: ShellStoreLike, text: string): boolean {
+  const state = store.getState();
+  if (state.approvalPrompt?.options?.[state.approvalCursor]?.decision?.kind !== 'deny') return false;
+  const clean = text.replace(/[\u0000-\u001f\u007f]+/g, ' ');
+  store.update((current) => ({
+    ...current,
+    approvalNote: `${current.approvalNote ?? ''}${clean}`.slice(0, 1000),
+  }));
+  return true;
+}
+
 function pasteTextFromClipboard(
   store: ShellStoreLike,
   handlers: ShellInputHandlers,
 ): void {
   const current = store.getState();
+  if (current.approvalPrompt && !current.exiting) {
+    const text = (handlers.readClipboardText ?? readClipboardText)();
+    if (text) appendToDenialNote(store, text);
+    return;
+  }
   if (
     current.exiting ||
     current.approvalPrompt ||
@@ -350,6 +367,7 @@ export function handleShellKeyEvent(
     ) {
       return;
     }
+    if (appendToDenialNote(store, event.text)) return;
     insertPastedText(store, handlers, event.text);
     return;
   }
@@ -519,6 +537,31 @@ export function handleShellKeyEvent(
     if (approvalIsGuarded(state)) {
       return;
     }
+    const highlighted = state.approvalPrompt.options?.[state.approvalCursor];
+    if (highlighted?.decision?.kind === 'deny') {
+      if (key.backspace || key.delete) {
+        store.update((current) => ({
+          ...current,
+          approvalNote: String(current.approvalNote ?? '').slice(0, -1),
+        }));
+        return;
+      }
+      if (
+        !key.ctrl &&
+        !key.meta &&
+        !key.returnKey &&
+        !key.escape &&
+        key.input &&
+        !/[\u0000-\u001f\u007f]/.test(key.input)
+      ) {
+        const typed = key.input;
+        store.update((current) => ({
+          ...current,
+          approvalNote: `${current.approvalNote ?? ''}${typed}`.slice(0, 1000),
+        }));
+        return;
+      }
+    }
     if (key.escape) {
 
 
@@ -535,7 +578,7 @@ export function handleShellKeyEvent(
     return;
   }
 
-  if (key.pageUp || key.pageDown) {
+  if (!state.modelPickerOpen && (key.pageUp || key.pageDown)) {
     scrollTranscript(store, handlers, key.pageUp ? 8 : -8);
     return;
   }
@@ -582,20 +625,22 @@ export function handleShellKeyEvent(
       store.update((current) => ({ ...current, modelPickerOpen: false }));
       return;
     }
-    if (key.upArrow || key.downArrow) {
+    if (key.upArrow || key.downArrow || key.pageUp || key.pageDown || key.home || key.end) {
       store.update((current) => {
         const options = buildModelPickerOptions(
           Number(current.currentModelId ?? 0),
           (current.serverModels as Parameters<typeof buildModelPickerOptions>[1]) ?? [],
         );
-        return {
-          ...current,
-          modelPickerIndex: getNextModelPickerIndex(
-            options,
-            current.modelPickerIndex,
-            key.upArrow ? -1 : 1,
-          ),
-        };
+        const direction = key.upArrow || key.pageUp || key.home ? -1 : 1;
+        const steps = key.home || key.end ? options.length
+          : key.pageUp || key.pageDown ? Math.max(1, handlers.getModelPickerPageSize?.() ?? 1) : 1;
+        let index = current.modelPickerIndex;
+        for (let step = 0; step < steps; step++) {
+          const next = getNextModelPickerIndex(options, index, direction);
+          if (!(key.upArrow || key.downArrow) && (direction < 0 ? next > index : next < index)) break;
+          index = next;
+        }
+        return { ...current, modelPickerIndex: index };
       });
       return;
     }

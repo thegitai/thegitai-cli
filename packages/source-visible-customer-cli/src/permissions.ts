@@ -1,16 +1,7 @@
 import { getUnquotedShellText } from './agent-mode.js';
 import type { ToolResponse } from './tools/types.js';
 
-
-
-
-
-
-
-
-
-
-export const PERMISSION_BUCKETS = ['create', 'edit', 'delete', 'run', 'browse', 'mcp'] as const;
+export const PERMISSION_BUCKETS = ['create', 'edit', 'delete', 'run', 'browse', 'mcp', 'computer'] as const;
 
 export type PermissionBucket = (typeof PERMISSION_BUCKETS)[number];
 
@@ -30,7 +21,11 @@ export interface SessionGrants {
 
   origins?: string[];
   mcpTools?: string[];
+  computer?: ComputerDesktop;
+  browser?: boolean;
 }
+
+export type ComputerDesktop = 'background' | 'screen';
 
 export type PermissionDecision =
   | { kind: 'once' }
@@ -38,7 +33,8 @@ export type PermissionDecision =
   | { kind: 'always-prefix'; prefix: string }
   | { kind: 'always-origin'; origin: string }
   | { kind: 'always-mcp-tool'; tool: string }
-  | { kind: 'deny' };
+  | { kind: 'computer'; desktop: ComputerDesktop; session: boolean }
+  | { kind: 'deny'; note?: string };
 
 export interface PermissionOption {
   label: string;
@@ -57,6 +53,8 @@ export interface PermissionRequest {
   command?: string;
 
   origin?: string;
+
+  alwaysAsk?: boolean;
 }
 
 export type PermissionRequester = (
@@ -79,6 +77,7 @@ export function bucketActionLabel(bucket: PermissionBucket): string {
   if (bucket === 'delete') return 'delete files';
   if (bucket === 'browse') return 'act on any website';
   if (bucket === 'mcp') return 'use MCP tools';
+  if (bucket === 'computer') return 'use apps on this computer';
   return 'run commands';
 }
 
@@ -418,10 +417,20 @@ function declinedSubject(bucket: PermissionBucket): {
   return { noun: 'edit', effect: 'Nothing was changed' };
 }
 
+export function denialNote(decision: PermissionDecision | null | undefined): string {
+  if (decision?.kind !== 'deny') return '';
+  return String(decision.note ?? '').trim().slice(0, 1000);
+}
+
+export function userSaid(note: string): string {
+  return note ? ` The user said: "${note}"` : '';
+}
+
 function declinedResponse(
   bucket: PermissionBucket,
   toolName: string,
   extra: Record<string, unknown>,
+  note = '',
 ): ToolResponse {
   const { noun, effect } = declinedSubject(bucket);
   return {
@@ -432,11 +441,12 @@ function declinedResponse(
     failureDetails: {
       category: 'user_declined',
       tool: toolName,
-      action:
-        'Respect the real user’s decision. Do not retry the same or an equivalent action; reconsider the approach or ask one specific question if needed.',
+      action: note
+        ? 'Respect the real user’s decision and do what they said instead. Do not retry the same or an equivalent action.'
+        : 'Respect the real user’s decision. Do not retry the same or an equivalent action; reconsider the approach or ask one specific question if needed.',
     },
     error:
-      `The real user rejected this proposed ${noun}. ${effect}; this was not a tool failure or an automated system skip.`,
+      `The real user rejected this proposed ${noun}. ${effect}; this was not a tool failure or an automated system skip.${userSaid(note)}`,
   };
 }
 
@@ -487,7 +497,7 @@ export async function ensurePermission(
   );
   const decision = await context.requestPermission({ ...request, options });
   if (decision.kind === 'deny') {
-    return declinedResponse(request.bucket, toolName, extra);
+    return declinedResponse(request.bucket, toolName, extra, denialNote(decision));
   }
   if (context.grants) {
     if (decision.kind === 'always-mcp-tool' && decision.tool === request.mcpTool) {

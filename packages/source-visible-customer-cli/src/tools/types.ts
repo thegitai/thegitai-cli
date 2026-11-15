@@ -7,6 +7,7 @@ import type { SessionSafetyState } from '../session-safety.js';
 import type { EditDiagnosticsPlan } from './shell-diagnostics.js';
 
 export interface ToolContext {
+  signal?: AbortSignal;
   rootDir: string;
   sessionId?: string | null;
   autoYes: boolean;

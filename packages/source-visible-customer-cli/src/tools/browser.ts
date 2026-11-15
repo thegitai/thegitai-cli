@@ -13,7 +13,7 @@ import {
   type BrowserAvailability,
 } from '../browser/session-bridge.js';
 import { getClientStateDir } from '../client-state.js';
-import { ensurePermission, originForUrl } from '../permissions.js';
+import { denialNote, ensurePermission, originForUrl, userSaid, type PermissionDecision, type SessionGrants } from '../permissions.js';
 import type { ToolContext, ToolResponse } from './types.js';
 
 
@@ -93,7 +93,55 @@ async function notConnected(
       };
     }
   }
+  const refused = await chromeAllowed(context);
+  if (refused) return refused;
   return allowUnchosen ? { ok: true } : profileChosen(context, Number(tabId));
+}
+
+const chromeAsks = new WeakMap<SessionGrants, Promise<PermissionDecision>>();
+
+async function chromeAllowed(context: ToolContext): Promise<ToolResponse | null> {
+  if (context.grants?.browser) return null;
+  if (!context.requestPermission) {
+    return {
+      ok: false,
+      browserErrorCode: 'not_allowed',
+      error: 'Using Chrome needs the user to allow it, and they cannot be asked here.',
+      failureCategory: 'user_declined',
+    };
+  }
+  const ask = () =>
+    context.requestPermission!({
+      bucket: 'browse',
+      alwaysAsk: true,
+      title: 'TheGitAI wants to use your Chrome',
+      body: 'It works in your Chrome tabs, signed in as you. Once allowed, it does not ask again in this session.',
+      options: [
+        { label: 'Allow for this session', decision: { kind: 'once' } },
+        { label: 'Deny', decision: { kind: 'deny' } },
+      ],
+    });
+  let pending = context.grants ? chromeAsks.get(context.grants) : undefined;
+  if (!pending) {
+    pending = ask();
+    if (context.grants) {
+      const grants = context.grants;
+      chromeAsks.set(grants, pending);
+      const forget = () => chromeAsks.delete(grants);
+      pending.then(forget, forget);
+    }
+  }
+  const decision = await pending;
+  if (decision.kind !== 'deny') {
+    if (context.grants) context.grants.browser = true;
+    return null;
+  }
+  return {
+    ok: false,
+    browserErrorCode: 'not_allowed',
+    error: `The user did not allow TheGitAI to use Chrome. Do not use the browser tools for this request; do it another way or tell the user.${userSaid(denialNote(decision))}`,
+    failureCategory: 'user_declined',
+  };
 }
 
 const resolvedProfileNames = new Map<string, string>();
@@ -885,7 +933,7 @@ export async function browserDownloads(
         await call(context, 'download.decide', { downloadId, accept: false });
         return {
           ok: false,
-          error: 'The user declined the download. It was cancelled and nothing was saved.',
+          error: `The user declined the download. It was cancelled and nothing was saved.${userSaid(denialNote(decision))}`,
           failureCategory: 'user_declined',
         };
       }

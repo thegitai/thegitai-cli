@@ -34,6 +34,7 @@ import type {
 } from './api/contracts.js';
 import type { ChatMessage } from './types.js';
 import { singleLinePreview } from './utils.js';
+import { gitAvailable } from './git-available.js';
 
 const SESSION_STORE_VERSION = 1;
 export const MAX_RECENT_SESSIONS = 10;
@@ -233,6 +234,7 @@ function normalizeSnapshot(raw: any, rootDir: string): ClientSessionSnapshot {
     updatedAt: normalizeIsoDate(raw.updatedAt),
     modelId,
     branch: normalizeBranch(raw.branch),
+    lastPromptAt: raw.lastPromptAt ? normalizeIsoDate(raw.lastPromptAt) : null,
     history: cloneJson(normalizeHistory(raw.history)),
     clientState: sanitizeClientState(raw.clientState),
     serverState: sanitizeOpaqueState(raw.serverState),
@@ -347,6 +349,7 @@ export function pruneSavedSessions(
 
 
 export function readGitBranch(rootDir: string): string | null {
+  if (!gitAvailable()) return null;
   try {
     const result = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd: rootDir,
@@ -376,6 +379,7 @@ export function snapshotFromSession(session: SessionState): ClientSessionSnapsho
     updatedAt: now,
     modelId: session.modelId,
     branch: readGitBranch(session.rootDir),
+    lastPromptAt: session.sessionLastPromptAt ?? null,
     history: cloneJson(session.history),
     clientState: {
       editCounter: session.clientState.editCounter,
@@ -417,6 +421,8 @@ export function applySessionSnapshot(
   session.sessionName = snapshot.name;
   session.sessionCreatedAt = snapshot.createdAt;
   session.sessionUpdatedAt = snapshot.updatedAt;
+  session.sessionLastPromptAt =
+    snapshot.lastPromptAt ?? session.sessionLastPromptAt ?? null;
   session.modelId = Number(options.modelOverride ?? snapshot.modelId);
   session.history = cloneJson(snapshot.history);
   session.serverState = sanitizeOpaqueState(snapshot.serverState);
@@ -509,6 +515,7 @@ function metadataFromSnapshot(snapshot: ClientSessionSnapshot): SessionMetadata 
     lastUserMessage: extractFirstUserPrompt(snapshot.history),
     summaryPreview: '',
     branch: snapshot.branch ?? null,
+    lastPromptAt: snapshot.lastPromptAt ?? null,
   };
 }
 

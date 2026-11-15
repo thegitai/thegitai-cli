@@ -111,7 +111,7 @@ function writeLauncher(
     const launcherPath = path.join(dir, 'browser-bridge-host.bat');
     const contents = [
       '@echo off',
-
+      ...(process.versions.electron ? ['set ELECTRON_RUN_AS_NODE=1'] : []),
       `"${process.execPath}" "${hostScript}" %*`,
       '',
     ].join('\r\n');
@@ -124,7 +124,11 @@ function writeLauncher(
   }
   const launcherPath = path.join(dir, 'browser-bridge-host.sh');
   const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-  const contents = `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(hostScript)} "$@"\n`;
+  const electronAsNode = Boolean(process.versions.electron) && platform === 'darwin';
+  const command = process.versions.electron && !electronAsNode
+    ? `${quote(process.execPath)}${platform === 'linux' ? ' --no-sandbox' : ''} --thegitai-browser-host`
+    : `${quote(process.execPath)} ${quote(hostScript)}`;
+  const contents = `#!/bin/sh\n${electronAsNode ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}exec ${command} "$@"\n`;
   const existing = fs.existsSync(launcherPath) ? fs.readFileSync(launcherPath, 'utf8') : null;
   if (existing === contents) {
 

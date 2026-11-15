@@ -1,9 +1,12 @@
-# TheGitAI - AI coding agent for your terminal
+# TheGitAI - AI coding agent
 
-TheGitAI is an AI coding agent that carries a task the whole way in your
-terminal: it investigates your repository, changes code across files, runs your
-real project, and checks the result against your own tests before handing it
-back. Every edit it makes can be undone without touching yours.
+TheGitAI is an AI coding agent that finishes the job: it changes your code,
+runs and tests it, and can use your signed-in Chrome and the apps on your
+computer to check the result. Every edit it makes can be undone without
+touching yours.
+
+This package is the CLI. The same agent is also available as a
+[desktop app](https://thegit.ai/desktop), with the same account and plan.
 
 - **Your repository and shell** - literal, regex and natural-language code
   search, multi-file edits, shell commands, tests, builds and diagnostics, with
@@ -12,18 +15,36 @@ back. Every edit it makes can be undone without touching yours.
   running in the background while it reproduces a bug and reads the logs.
 - **Your signed-in Chrome** - with the TheGitAI Chrome extension it works in the
   browser you already have open, signed in as you, in its own tab group.
+- **Computer Control** - it uses the apps on your computer on Linux and macOS:
+  in front of you, or on a screen of its own while you keep working.
+  [Setup guide](https://thegit.ai/docs/computer-control/overview).
 - **Skills** - teach it your team's workflows as `SKILL.md` folders. It uses one
   when a request calls for it, or when you type `/<name>`.
 - **MCP servers** - connect local or remote MCP servers with `ai mcp add`.
+- **Memory and project rules** - it remembers your corrections and preferences
+  between sessions, in files on your computer, and follows your `AGENTS.md` or
+  `CLAUDE.md` on every request.
+- **Git and pull requests** - it reads history and diffs, commits on a branch,
+  and opens and reviews pull requests with the GitHub CLI.
 - **Beyond source code** - reads PDF, Word and Excel files, edits Word
-  documents, looks at screenshots, and searches and fetches the web.
+  documents, looks at screenshots, generates images, and searches and fetches
+  the web.
 - **Steering and recovery** - send corrections while it works, switch between
   Default, Bypass all permissions and Plan modes, and undo an edit, a turn or a
   file, or restore a checkpoint.
-- **Curated frontier models** - switch models mid-session without losing the
+- **Curated frontier models** - models from the leading US and Chinese AI labs,
+  or Auto to pick one for each task. Switch mid-session without losing the
   conversation. No provider API keys to manage.
 
 Documentation: https://thegit.ai/docs
+
+Models: https://thegit.ai/models
+
+Full manual for AI tools: https://thegit.ai/llms-full.txt
+
+Demos: [Desktop app](https://youtu.be/hQ-K_VFlMrM),
+[Browser Control](https://youtu.be/yFbGC5r9WbY),
+[Computer Control](https://youtu.be/2K3klt4DNYc)
 
 ## Install
 
@@ -31,7 +52,8 @@ Documentation: https://thegit.ai/docs
 npm i -g @thegitai/cli
 ```
 
-Supports Node.js 22 and newer. Node.js 24 is recommended.
+Runs on macOS, Linux and Windows. Supports Node.js 22 and newer. Node.js 24 is
+recommended.
 
 This installs the `ai` command. If `ai` is already taken by another command on
 your machine, `thegitai` starts the same CLI.
@@ -99,6 +121,9 @@ Type `/model` to choose with **↑ / ↓**, and adjust a model's reasoning effor
 with **← / →** in the same panel: **Default / Low / Balanced / Deep**.
 **Enter** saves the selected model's choice for this project; **Esc** cancels.
 Each model remembers its own choice across new and resumed sessions.
+In short terminals, the list scrolls around the highlighted model and shows how
+many models are above and below. Use **PageUp / PageDown** to move a page, or
+**Home / End** to reach the first or last model. Effort controls stay visible.
 A model your plan does not include stays in the list, grayed out with the
 reason, and **Enter** does not select it.
 On Plus or Pro, the footer names the plan after **TheGitAI**.
@@ -275,6 +300,28 @@ did not load. `/skills add <source>` installs one from GitHub
 repositories) or a local folder after showing what it contains; add `--project`
 to install it into the current project. Ask the agent to "create a skill that
 ..." or run `/skill-creator` to make one.
+
+## Memory
+
+TheGitAI remembers what you teach it. When you correct it, state a lasting
+preference, or make a decision the code does not show, it saves the lesson
+without being asked, and a short "Memory updated" line says so. Memory is a set
+of topics, one Markdown file each with a dated entry for every lesson, per
+project or personal for every project. It stays on your computer and is never
+stored on our servers, and only the topics that apply to a request are used.
+`/memory` lists your topics and where they live, `/memory show <n>` and
+`/memory delete <n>` show or remove one, and `/memory off` turns memory off. The
+files can also be edited in any text editor.
+
+## Project instructions
+
+TheGitAI follows the `AGENTS.md`, `AGENT.md` or `CLAUDE.md` at your project's
+root on every request, so your project's rules apply without repeating them.
+
+## Notifications
+
+Press Ctrl+G or run `/notify` to get a desktop notification when a turn ends or
+is waiting for you while the terminal is in the background.
 
 ## Chrome browser control
 

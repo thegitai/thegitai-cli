@@ -17,6 +17,7 @@ import {
   type SessionSafetyState,
 } from './session-safety.js';
 import { closeBrowserBridge } from './browser/session-bridge.js';
+import { disconnectComputerHelper } from './tools/computer.js';
 import type { ChatMessage, ToolCall } from './types.js';
 import { clampInteger } from './utils.js';
 import type {
@@ -107,8 +108,7 @@ export interface SessionState {
   onRecovery?: (status: TurnRecoveryStatus) => void;
   onAccountUsage?: (usage: AccountUsage) => void;
   onToolEvent: ((event: { call: ToolCall; result: unknown }) => void) | null;
-
-
+  onToolStart?: (call: ToolCall) => void;
   turnAbortSignal?: AbortSignal;
   grants: SessionGrants;
   requestPermission: PermissionRequester | null;
@@ -125,6 +125,7 @@ export interface SessionState {
   sessionName: string | null;
   sessionCreatedAt: string;
   sessionUpdatedAt: string;
+  sessionLastPromptAt: string | null;
   modelId: number;
   turnState: SessionTurnState;
   clientState: SessionClientState;
@@ -208,6 +209,7 @@ export function createSession({
     sessionName,
     sessionCreatedAt: createdAt,
     sessionUpdatedAt: createdAt,
+    sessionLastPromptAt: null,
     modelId: Number(modelId),
     turnState: {
       id: null,
@@ -233,6 +235,7 @@ export function startNewConversation(session: SessionState): void {
   session.sessionName = null;
   session.sessionCreatedAt = createdAt;
   session.sessionUpdatedAt = createdAt;
+  session.sessionLastPromptAt = null;
 }
 
 export function clearConversation(session: SessionState): void {
@@ -260,6 +263,7 @@ export async function disposeSession(session: SessionState): Promise<void> {
 
 
   closeBrowserBridge();
+  disconnectComputerHelper();
   await session.mcp?.close();
 }
 

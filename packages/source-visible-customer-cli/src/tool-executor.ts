@@ -80,6 +80,9 @@ function toolCallSummary(call: ToolCall): string {
     if (todos.length === 0) return '';
     return `${todos.length} item${todos.length === 1 ? '' : 's'}`;
   }
+  if (call.name.startsWith('computer_')) {
+    return String(args.title ?? args.app ?? '').trim();
+  }
   const filePath = getEditToolFilePath(call);
   if (filePath) return filePath;
   if (typeof args.query === 'string') return args.query.slice(0, 120);
@@ -311,6 +314,7 @@ export async function executeLocalToolCall(
   diagnosticsPlan?: EditDiagnosticsPlan,
 ): Promise<ToolResponse> {
   session.turnAbortSignal?.throwIfAborted();
+  session.onToolStart?.(call);
   session.onStatus(formatToolCallForStatus(call, session.mcp?.label(call.name)));
   try {
     const agentModeBlocked = buildAgentModeToolBlockedResult(
@@ -362,6 +366,7 @@ export async function executeLocalToolCall(
         ? captureMutationBaseline(session.rootDir)
         : null;
     const context = {
+      signal: session.turnAbortSignal,
       rootDir: session.rootDir,
       sessionId: session.sessionId,
       autoYes: session.autoYes,

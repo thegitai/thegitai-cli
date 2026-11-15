@@ -18,6 +18,7 @@ import {
   writeProjectFile,
   writeProjectFileBuffer,
 } from './patcher.js';
+import { gitAvailable } from './git-available.js';
 
 const MAX_CHECKPOINTS = 20;
 const MAX_SESSION_EDITS = 500;
@@ -1083,6 +1084,7 @@ export async function restoreCheckpointFiles(args: {
 }
 
 function git(args: string[], cwd: string): string | null {
+  if (!gitAvailable()) return null;
   try {
     return execFileSync('git', args, {
       cwd,
@@ -1096,6 +1098,7 @@ function git(args: string[], cwd: string): string | null {
 }
 
 function gitBuffer(args: string[], cwd: string): Buffer | null {
+  if (!gitAvailable()) return null;
   try {
     return execFileSync('git', args, {
       cwd,

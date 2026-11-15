@@ -20,7 +20,7 @@ import {
   redactContentWithStableTokens,
   redactDotenvWithStableTokens,
 } from '../session-safety.js';
-import { readFileRange, truncate } from '../utils.js';
+import { readFileRange } from '../utils.js';
 import { ToolContext, ToolResponse } from './types.js';
 import { IMAGE_MIME_BY_EXT } from '../core/image-limits.js';
 import { readImageFile } from './read-image-file.js';
@@ -133,19 +133,30 @@ export async function readFile(
         : redactContentWithStableTokens(safety, range.content, projectPath, hash)
       : { content: range.content, tokens: [] };
   const contentTruncated = redacted.content.length > MAX_FILE_READ_CHARS;
+  const head = redacted.content.slice(0, MAX_FILE_READ_CHARS);
+  const lastBreak = contentTruncated ? head.lastIndexOf('\n') : -1;
+  const lineCut = contentTruncated && lastBreak < 0;
+  const deliveredContent = !contentTruncated
+    ? redacted.content
+    : lineCut
+      ? head
+      : head.slice(0, lastBreak);
   const deliveredEndLine = contentTruncated
     ? Math.min(
         range.endLine,
-        range.startLine +
-          redacted.content.slice(0, MAX_FILE_READ_CHARS).split('\n').length -
-          1,
+        range.startLine + deliveredContent.split('\n').length - 1,
       )
     : range.endLine;
+  const continueNote = !contentTruncated
+    ? ''
+    : lineCut
+      ? `\n... (line ${range.startLine} is longer than ${MAX_FILE_READ_CHARS} characters and only its start is shown; read the rest of that line with run_command or grep_code${range.startLine < range.totalLines ? `, and continue the file with startLine ${range.startLine + 1}` : ''})`
+      : `\n... (truncated after line ${deliveredEndLine} of ${range.totalLines}; call read_file with startLine ${deliveredEndLine + 1} to continue)`;
   const fullFile =
     range.startLine === 1 &&
     deliveredEndLine === range.totalLines &&
     !contentTruncated;
-  if (projectPath && safety) {
+  if (projectPath && safety && !lineCut) {
     recordReadCoverage(safety, {
       filePath: projectPath,
       hash,
@@ -162,7 +173,7 @@ export async function readFile(
     totalLines: range.totalLines,
     startLine: range.startLine,
     endLine: deliveredEndLine,
-    content: truncate(redacted.content, MAX_FILE_READ_CHARS),
+    content: `${deliveredContent}${continueNote}`,
     contentHash: hash,
     readCoverage: {
       fullFile,
