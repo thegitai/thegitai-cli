@@ -1,3 +1,4 @@
+import { modelPickerWindow, modelPickerScrollLabel } from './model-picker-window.js';
 import { fitModelLabel } from './model-label.js';
 import { projectModelEffort, type ProjectModelEfforts } from '../../project-model-preferences.js';
 import { REASONING_EFFORTS, REASONING_EFFORT_LABELS, REASONING_EFFORT_DESCRIPTIONS, type ReasoningEffort } from '../../reasoning-effort.js';
@@ -81,6 +82,7 @@ export interface TranscriptEntryDraft {
   diffPreview?: DiffPreviewModel;
   filePath?: string;
   kind: TranscriptKind;
+  note?: string;
   preformatted?: boolean;
   title: string;
   jobId?: string;
@@ -119,12 +121,13 @@ export interface ShellState {
   activeTurnInputPreformatted?: boolean;
   agentMode: import('../../agent-mode.js').AgentMode;
   approvalCursor: number;
+  approvalNote?: string;
   approvalPrompt: {
     body: string;
     diffPreview?: DiffPreviewModel;
     filePath?: string;
 
-    options?: { label: string }[];
+    options?: { label: string; decision?: { kind: string } }[];
     title: string;
   } | null;
 
@@ -800,6 +803,7 @@ export function renderTranscriptEntryLines(
   if (entry.todoList && entry.todoList.length > 0) {
     lines.push(...renderTodoListLines(entry.todoList, width));
   }
+  if (entry.note) lines.push(plainLine(`  ${entry.note}`, { color: 'gray' }));
   return lines;
 }
 
@@ -1397,6 +1401,12 @@ function buildLiveLines(
   nowMs: number,
 ): TuiLine[] {
   if (!state.busy) return [];
+  if (state.approvalPrompt || state.sudoPrompt || state.userInputPrompt) {
+    return [
+      plainLine(''),
+      plainLine(buildWorkingClockLine(state, elapsedSeconds), { color: 'yellow' }),
+    ];
+  }
   const lines: TuiLine[] = [plainLine('')];
   if (state.activeTurnInput) {
     lines.push(...renderTranscriptEntryLines(
@@ -1614,8 +1624,9 @@ function pickerTopBorder(panelWidth: number, fullTitle: string, compactTitle: st
   );
 }
 
-function modelPickerDivider(panelWidth: number): TuiLine {
-  return plainLine(`├${'─'.repeat(panelWidth - 2)}┤`, {
+function modelPickerDivider(panelWidth: number, scrollLabel = ''): TuiLine {
+  const label = scrollLabel ? ` ${fitLine(scrollLabel, panelWidth - 4)} ` : '';
+  return plainLine(`├${label}${'─'.repeat(Math.max(0, panelWidth - 2 - displayWidth(label)))}┤`, {
     color: MODEL_PICKER_BORDER_COLOR,
   });
 }
@@ -1775,6 +1786,35 @@ function modelPickerDisplayRows(
   return rows;
 }
 
+function modelPickerLayout(
+  options: ModelPickerOptionRow[],
+  selectedIndex: number,
+  innerWidth: number,
+  availableHeight: number,
+  pausedCount: number,
+) {
+  const rows = modelPickerDisplayRows(options, pausedCount, innerWidth);
+  const showEffortDetails = rows.length + 8 <= availableHeight;
+  const fixedLineCount = showEffortDetails ? 8 : 5;
+  const selectedRow = Math.max(0, rows.findIndex((row) => row.kind === 'option' && row.index === selectedIndex));
+  const window = modelPickerWindow(rows.length, selectedRow, availableHeight - fixedLineCount);
+  const visibleRows = rows.slice(window.start, window.end);
+  return {
+    showEffortDetails,
+    fixedLineCount,
+    visibleRows,
+    above: rows.slice(0, window.start).filter((row) => row.kind === 'option').length,
+    below: rows.slice(window.end).filter((row) => row.kind === 'option').length,
+  };
+}
+
+export function modelPickerPageSize(state: ShellState, cols: number, rows: number): number {
+  const options = buildModelPickerOptions(state.currentModelId, state.serverModels);
+  const panelWidth = Math.max(28, Math.min(frameContentWidth(cols), MODEL_PICKER_PANEL_MAX_WIDTH));
+  const layout = modelPickerLayout(options, state.modelPickerIndex, panelWidth - 4, rows, pausedModelCount(state.serverModels));
+  return Math.max(1, layout.visibleRows.filter((row) => row.kind === 'option').length);
+}
+
 function buildModelPickerPanel(
   options: ModelPickerOptionRow[],
   selectedIndex: number,
@@ -1785,16 +1825,10 @@ function buildModelPickerPanel(
 ): TuiLine[] {
   const panelWidth = Math.max(28, Math.min(width, MODEL_PICKER_PANEL_MAX_WIDTH));
   const innerWidth = Math.max(1, panelWidth - 4);
-  const rows = modelPickerDisplayRows(options, pausedCount, innerWidth);
-  const showEffortDetails = rows.length + 8 <= availableHeight;
-  const fixedLineCount = showEffortDetails ? 8 : 5;
-  const visibleCount = Math.min(rows.length, Math.max(1, availableHeight - fixedLineCount));
-  const selectedRow = Math.max(
-    0,
-    rows.findIndex((row) => row.kind === 'option' && row.index === selectedIndex),
+  const { showEffortDetails, fixedLineCount, visibleRows, above, below } = modelPickerLayout(
+    options, selectedIndex, innerWidth, availableHeight, pausedCount,
   );
-  const firstVisible = Math.max(0, Math.min(selectedRow - visibleCount + 1, rows.length - visibleCount));
-  const visibleRows = rows.slice(firstVisible, firstVisible + visibleCount);
+  const scrolling = above > 0 || below > 0;
   const bodyLineCount = visibleRows.length + fixedLineCount;
   const marginLineCount = Math.max(
     0,
@@ -1841,9 +1875,15 @@ function buildModelPickerPanel(
     ? '↑/↓ model  •  Enter select  •  Esc cancel'
     : '↑/↓ model  •  ←/→ effort  •  Enter select/save  •  Esc cancel';
   const compactHint = autoSelected ? '↑↓ · Enter · Esc' : '↑↓ · ←→ · Enter · Esc';
-  const hint = [...fullHint].length <= innerWidth ? fullHint : compactHint;
+  const navigationHint = scrolling
+    ? fullHint.replace('↑/↓ model', '↑/↓ scroll  •  PgUp/PgDn page  •  Home/End')
+    : fullHint;
+  const compactNavigationHint = scrolling
+    ? innerWidth >= 39 ? '↑↓ PgUp/PgDn Home/End · ←→ · Enter · Esc' : '↑↓ PgUp/PgDn Enter Esc'
+    : compactHint;
+  const hint = [...navigationHint].length <= innerWidth ? navigationHint : compactNavigationHint;
   body.push(
-    modelPickerDivider(panelWidth),
+    modelPickerDivider(panelWidth, scrolling ? modelPickerScrollLabel(above, below, innerWidth) : ''),
     lockedSelection
       ? modelPickerPanelSideLine(plainLine(fitLine(showEffortDetails ? (lockedLines[0] ?? '') : lockedSelection.note, innerWidth), { color: 'yellow', bold: true }), innerWidth)
       : modelPickerPanelSideLine(plainLine(fitLine(effortText, innerWidth), { color: 'cyan', bold: true }), innerWidth),
@@ -2484,20 +2524,32 @@ function buildOverlayLines(
 
 
 
-    const options = (prompt.options ?? []).map((option) => option.label);
-    options.forEach((label, index) => {
+    const options = prompt.options ?? [];
+    const noteRoom = Math.max(1, Math.min(3, height - lines.length - options.length - (padded ? 1 : 0) - 3));
+    options.forEach((option, index) => {
       const selected = index === state.approvalCursor;
       lines.push(
         line(
           span(selected ? '› ' : '  ', {
             color: selected ? APPROVAL_ACCENT_COLOR : 'gray',
           }),
-          span(label, {
+          span(option.label, {
             color: selected ? APPROVAL_ACCENT_COLOR : undefined,
             bold: selected,
           }),
         ),
       );
+      if (!selected || option.decision?.kind !== 'deny') return;
+      const note = String(state.approvalNote ?? '');
+      if (!note) {
+        lines.push(plainLine('    Type to tell TheGitAI what to do instead (optional)', { color: 'gray' }));
+        return;
+      }
+      const rows = wrapText(`${note}▏`, Math.max(1, innerWidth - 5));
+      const shown = rows.slice(-noteRoom);
+      shown.forEach((text, row) => {
+        lines.push(plainLine(`    ${row === 0 && rows.length > shown.length ? '…' : ''}${text}`));
+      });
     });
     if (padded) lines.push(plainLine(''));
     lines.push(

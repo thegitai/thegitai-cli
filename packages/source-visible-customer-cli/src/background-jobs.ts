@@ -9,6 +9,7 @@ import {
 } from './executor.js';
 import { isTuiMode } from './runtime-mode.js';
 import { redactConnectionStringCredentials } from './secret-preview.js';
+import { scopedSessionId } from './session-context.js';
 
 export type BackgroundJobStatus = 'running' | 'exited' | 'killed' | 'error';
 
@@ -77,12 +78,16 @@ export function setBackgroundJobUpdateHook(
   updateHook = hook;
 }
 
+function fallbackSessionId(): string | null {
+  return scopedSessionId() ?? activeSessionId;
+}
+
 function normalizeSessionId(sessionId?: string | null): string {
-  return String(sessionId ?? activeSessionId ?? 'default').trim() || 'default';
+  return String(sessionId ?? fallbackSessionId() ?? 'default').trim() || 'default';
 }
 
 function sessionFilter(sessionId?: string | null): string | null {
-  const value = String(sessionId ?? activeSessionId ?? '').trim();
+  const value = String(sessionId ?? fallbackSessionId() ?? '').trim();
   return value || null;
 }
 

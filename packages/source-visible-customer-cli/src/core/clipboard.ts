@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import {
@@ -289,53 +289,93 @@ function normalizeClipboardTextOutput(text: string): string {
   return text.replace(/\r?\n$/, '');
 }
 
-function tryWriteClipboardCommand(
-  cmd: string,
-  args: string[],
-  text: string,
-): boolean {
-  if (!whichSync(cmd)) return false;
-  try {
-    execFileSync(cmd, args, {
-      input: text,
-      timeout: 2000,
-      stdio: ['pipe', 'ignore', 'ignore'],
+const CLIPBOARD_WRITE_TIMEOUT_MS = 4000;
+
+let latestCopy = 0;
+let runningWriter: ChildProcess | null = null;
+let copyQueue: Promise<void> = Promise.resolve();
+
+function runClipboardWriter(cmd: string, args: string[], text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
+    runningWriter = child;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (runningWriter === child) runningWriter = null;
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(new Error(`did not finish within ${CLIPBOARD_WRITE_TIMEOUT_MS / 1000}s`));
+    }, CLIPBOARD_WRITE_TIMEOUT_MS);
+    child.on('error', (error) => finish(error));
+    child.on('exit', (code, signal) => {
+      if (code === 0) finish();
+      else finish(new Error(`exited with ${signal ?? code}`));
     });
-    return true;
-  } catch (error: any) {
-    throw new ClipboardError(
-      `Failed to write clipboard with ${cmd}: ${error.message}`,
-      'WRITE_FAILED',
+    child.stdin?.on('error', () => {});
+    child.stdin?.end(text);
+  });
+}
+
+function clipboardWriters(platform: NodeJS.Platform): Array<[string, string[]]> {
+  if (platform === 'darwin') return [['pbcopy', []]];
+  if (platform === 'win32') return [['clip.exe', []]];
+  if (platform !== 'linux') return [];
+  const writers: Array<[string, string[]]> = [];
+  if (isWayland()) writers.push(['wl-copy', []]);
+  writers.push(['xclip', ['-selection', 'clipboard']], ['xsel', ['--clipboard', '--input']]);
+  return writers;
+}
+
+function missingClipboardTool(platform: NodeJS.Platform): ClipboardError {
+  if (platform === 'darwin') {
+    return new ClipboardError('pbcopy is required to copy text on macOS.', 'NO_TOOL');
+  }
+  if (platform === 'win32') {
+    return new ClipboardError('clip.exe is required to copy text on Windows.', 'NO_TOOL');
+  }
+  if (platform === 'linux') {
+    return new ClipboardError(
+      'wl-copy, xclip, or xsel is required to copy text. Install wl-clipboard, xclip, or xsel.',
+      'NO_TOOL',
     );
   }
+  return new ClipboardError(`Clipboard text copy is not supported on ${platform}.`, 'NO_TOOL');
 }
 
 export function writeClipboardText(
   text: string,
   platform: NodeJS.Platform = process.platform,
-): void {
-  const value = String(text ?? '');
-  if (platform === 'darwin') {
-    if (tryWriteClipboardCommand('pbcopy', [], value)) return;
-    throw new ClipboardError('pbcopy is required to copy text on macOS.', 'NO_TOOL');
+): Promise<void> {
+  const copy = ++latestCopy;
+  runningWriter?.kill();
+  const result = copyQueue.then(() => writeLatestCopy(String(text ?? ''), platform, copy));
+  copyQueue = result.catch(() => {});
+  return result;
+}
+
+async function writeLatestCopy(value: string, platform: NodeJS.Platform, copy: number): Promise<void> {
+  if (copy !== latestCopy) return;
+  const writers = clipboardWriters(platform).filter(([cmd]) => whichSync(cmd));
+  if (!writers.length) throw missingClipboardTool(platform);
+  const attempts = writers.length === 1 ? [writers[0], writers[0]] : writers;
+  const failures: string[] = [];
+  for (const [cmd, args] of attempts) {
+    if (copy !== latestCopy) return;
+    try {
+      await runClipboardWriter(cmd, args, value);
+      return;
+    } catch (error: any) {
+      failures.push(`${cmd} ${error.message}`);
+    }
   }
-  if (platform === 'win32') {
-    if (tryWriteClipboardCommand('clip.exe', [], value)) return;
-    throw new ClipboardError('clip.exe is required to copy text on Windows.', 'NO_TOOL');
-  }
-  if (platform === 'linux') {
-    if (isWayland() && tryWriteClipboardCommand('wl-copy', [], value)) return;
-    if (tryWriteClipboardCommand('xclip', ['-selection', 'clipboard'], value)) return;
-    if (tryWriteClipboardCommand('xsel', ['--clipboard', '--input'], value)) return;
-    throw new ClipboardError(
-      'wl-copy, xclip, or xsel is required to copy text. Install wl-clipboard, xclip, or xsel.',
-      'NO_TOOL',
-    );
-  }
-  throw new ClipboardError(
-    `Clipboard text copy is not supported on ${platform}.`,
-    'NO_TOOL',
-  );
+  if (copy !== latestCopy) return;
+  throw new ClipboardError(`Failed to write clipboard: ${failures.join('; ')}`, 'WRITE_FAILED');
 }
 
 export function loadImageFromFile(filePath: string): ClipboardImageResult {

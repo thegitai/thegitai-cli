@@ -203,7 +203,7 @@ function buildAuthUrl(
 }
 
 const RESULT_PAGE = (heading: string, detail: string) =>
-  `<!doctype html><html><head><meta charset="utf-8"><title>TheGitAI CLI</title>` +
+  `<!doctype html><html><head><meta charset="utf-8"><title>TheGitAI</title>` +
   `<style>body{font-family:system-ui,sans-serif;background:#0c0d10;color:#e6e7ea;` +
   `display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}` +
   `.card{text-align:center;max-width:420px;padding:2rem}h1{font-size:1.4rem}` +
@@ -334,7 +334,7 @@ export async function loginViaBrowser(
       shutDownServer(server);
       reject(
         new Error(
-          'Sign-in timed out. Authorization codes last 10 minutes - run `ai` again to start over.',
+          'Sign-in timed out. Authorization codes last 10 minutes - start sign-in again.',
         ),
       );
     }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -353,7 +353,7 @@ export async function loginViaBrowser(
       if (!code || returnedState !== state) {
         res.writeHead(400, { 'content-type': 'text/html', connection: 'close' });
         res.end(
-          RESULT_PAGE('Login failed', 'The request could not be verified. Please run `ai` again.'),
+          RESULT_PAGE('Login failed', 'The request could not be verified. Please sign in again.'),
         );
         clearTimeout(timer);
         shutDownServer(server);
@@ -362,7 +362,7 @@ export async function loginViaBrowser(
       }
       res.writeHead(200, { 'content-type': 'text/html', connection: 'close' });
       res.end(
-        RESULT_PAGE('You are signed in', 'You can close this tab and return to your terminal.'),
+        RESULT_PAGE('You are signed in', 'You can close this tab and return to TheGitAI.'),
       );
       clearTimeout(timer);
       shutDownServer(server);

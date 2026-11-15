@@ -19,6 +19,7 @@ import {
   browserTabs,
 } from './browser.js';
 import { shellJobOutput } from './shell-job-output.js';
+import { COMPUTER_OPERATIONS, computerTool } from './computer.js';
 import { deleteFile } from './delete-file.js';
 import { getDiagnostics } from './get-diagnostics.js';
 import { grepCode } from './grep-code.js';
@@ -42,7 +43,7 @@ import type { ToolContext, ToolResponse } from './types.js';
 import { undoEdit } from './undo-edit.js';
 import { updateTodos } from './update-todos.js';
 import { useSkill } from './use-skill.js';
-import { readImageFile } from './read-image-file.js';
+import { recallNotes, rememberNote } from './memory.js';
 import { saveGeneratedImage } from './save-generated-image.js';
 import { writeFile } from './write-file.js';
 
@@ -74,11 +75,12 @@ export const TOOL_MAP: Record<string, ToolFn> = {
   shell_job_kill: shellJobKill as ToolFn,
   update_todos: updateTodos as ToolFn,
   use_skill: (context, args) => useSkill(context, args),
+  remember: (context, args) => rememberNote(context, args),
+  recall: (context, args) => recallNotes(context, args),
 
 
 
 
-  analyze_image: (context, args) => readImageFile(context, args),
 
 
 
@@ -103,9 +105,9 @@ export const TOOL_MAP: Record<string, ToolFn> = {
   browser_file_upload: browserFileUpload as ToolFn,
   browser_downloads: browserDownloads as ToolFn,
   browser_batch: browserBatch as ToolFn,
-
-
-
+  ...Object.fromEntries(
+    COMPUTER_OPERATIONS.map((operation) => [`computer_${operation}`, computerTool(operation) as ToolFn]),
+  ),
   generate_image: (_context, args) => {
     if (!String(args.base64Data ?? '').trim()) {
       return {

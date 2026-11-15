@@ -64,7 +64,7 @@ The full manual is [What It Can Do](https://thegit.ai/docs/core-features/what-it
   public web search and page fetches.
 - **[MCP servers](https://thegit.ai/docs/core-features/mcp-servers)** - connect local stdio or remote HTTP tools with `ai mcp add`. `/mcp` shows
   their status and tools.
-- **[Browser control](https://thegit.ai/docs/core-features/browser-control)** - with the TheGitAI Chrome extension, the agent works in the Chrome you
+- **[Browser control](https://thegit.ai/docs/browser-control/overview)** - with the TheGitAI Chrome extension, the agent works in the Chrome you
   already have open, signed in as you: cloud consoles, dashboards, and admin
   panels with no API.
 - **[Saved sessions](https://thegit.ai/docs/sessions/saved-sessions)** - sessions are saved locally per repository. Resume one with `/resume` or
@@ -121,7 +121,7 @@ The complete list is in the [CLI Reference](https://thegit.ai/docs/reference/cli
   [Background Jobs](https://thegit.ai/docs/core-features/background-jobs) ·
   [Documents, Images & Web](https://thegit.ai/docs/core-features/documents-images-and-web) ·
   [MCP Servers](https://thegit.ai/docs/core-features/mcp-servers) ·
-  [Browser Control](https://thegit.ai/docs/core-features/browser-control)
+  [Browser Control](https://thegit.ai/docs/browser-control/overview)
 - **Sessions** -
   [Saved Sessions](https://thegit.ai/docs/sessions/saved-sessions) ·
   [Prompt History](https://thegit.ai/docs/sessions/prompt-history)

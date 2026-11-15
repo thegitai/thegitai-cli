@@ -167,6 +167,18 @@ export function startBrowserBridge({
           const existing = key ? browsers.get(key) : null;
           const displaced = browsers.get(announced);
           if (displaced && displaced.socket !== socket) {
+            const incoming = Number(frame.browser?.startedAt) || 0;
+            const current = Number(displaced.identity?.startedAt) || 0;
+            if (incoming && current && incoming < current) {
+              socket.write(`${JSON.stringify({ t: 'superseded', key: announced })}\n`);
+              socket.destroy();
+              return;
+            }
+            try {
+              displaced.socket.write(`${JSON.stringify({ t: 'superseded', key: announced })}\n`);
+            } catch {
+
+            }
             displaced.socket.destroy();
             rejectDisconnectedRequests(displaced);
           }

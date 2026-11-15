@@ -91,7 +91,7 @@ function executeNodeScript(
     let settled = false;
     let timeoutTimer: NodeJS.Timeout | null = null;
     let killTimer: NodeJS.Timeout | null = null;
-    const child = spawn(process.execPath, ['--input-type=module'], {
+    const child = spawn(process.versions.electron ? 'node' : process.execPath, ['--input-type=module'], {
       cwd: rootDir,
       detached: process.platform !== 'win32',
       env: {

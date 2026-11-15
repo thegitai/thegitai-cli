@@ -609,6 +609,7 @@ async function runJavaScriptCheck(
     return runTypeScriptCheck(rootDir);
   }
   if (filePath) {
+    if (!(await commandExists('node'))) return runJavaScriptStaticCheck(rootDir, filePath);
     const result = await runCheck('node', ['--check', filePath], rootDir);
     const staticDiagnostics = runJavaScriptStaticCheck(rootDir, filePath);
     if (result.exitCode !== 0) {

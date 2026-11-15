@@ -14,6 +14,7 @@ import {
   AGENT_MODE_LOCKED_STATUS,
   approvalScrollLimit,
   buildTuiFrame,
+  modelPickerPageSize,
   formatJobElapsed,
   formatTodoProgress,
   pickThinkingFallbackPhrase,
@@ -94,6 +95,7 @@ import {
 import { clearTodos, listTodos, setTodoSession } from '../todo-list.js';
 import { setScratchSession } from '../scratch-dir.js';
 import { setImageStoreSession } from '../core/session-image-store.js';
+import { runMemoryCommand } from '../memory/command.js';
 import { cancelActiveCommand } from '../executor.js';
 import { isTurnFailureMarker } from '../turn-failure-marker.js';
 import {
@@ -197,6 +199,7 @@ interface TranscriptEntry {
   id: number;
   jobId?: string;
   kind: TranscriptKind;
+  note?: string;
   preformatted?: boolean;
   title: string;
   todoList?: TodoDisplayItem[];
@@ -218,16 +221,25 @@ function sameTranscriptDraft(
   );
 }
 
+export function memoryUpdatedNote(topics: readonly string[]): string | undefined {
+  if (topics.length === 0) return undefined;
+  const named = [...new Set(topics.filter(Boolean))];
+  return named.length ? `Memory updated: ${named.join(', ')}` : 'Memory updated';
+}
+
 export function buildSettledTurnTranscriptEntries(
   turnEntries: TranscriptEntryDraft[],
   responseText: string,
+  memoryTopics: readonly string[] = [],
 ): TranscriptEntryDraft[] {
   const responseBody = String(responseText ?? '').trim();
+  const note = memoryUpdatedNote(memoryTopics);
   const responseEntry: TranscriptEntryDraft | null = responseBody
     ? {
       body: responseBody,
       kind: 'assistant',
       title: 'Response',
+      ...(note ? { note } : {}),
     }
     : null;
   return [
@@ -325,6 +337,7 @@ interface ShellState {
   analyzingImages: number;
   generatingImage: boolean;
   approvalCursor: number;
+  approvalNote?: string;
   approvalPrompt: ApprovalPromptState | null;
   approvalScrollOffset: number;
   autoYes: boolean;
@@ -440,14 +453,14 @@ export function buildReportTranscriptEntries(
   return openedUrl
     ? [
         {
-          body: `Opening the private bug report form in your browser. If nothing opened, visit:\n\n${REPORT_ISSUE_URL}\n`,
+          body: `Opening the private form for bugs and feature requests in your browser. If nothing opened, visit:\n\n${REPORT_ISSUE_URL}\n`,
           kind: 'system',
           title: 'Report',
         },
       ]
     : [
         {
-          body: `Could not open a browser. Report the bug manually at:\n\n${REPORT_ISSUE_URL}\n`,
+          body: `Could not open a browser. Report the bug or request the feature at:\n\n${REPORT_ISSUE_URL}\n`,
           kind: 'error',
           title: 'Report',
         },
@@ -1205,6 +1218,15 @@ export function buildWorkingToolEntry(event: ToolTranscriptEvent, label = event.
     };
   }
 
+  if (call.name === 'recall') {
+    const found = Array.isArray(result?.matches) ? result.matches.length : 0;
+    return {
+      body: `${String(call.args?.query ?? '').trim()}${state(` · ${found} found`)}${error}`,
+      kind,
+      title: 'Searched memory',
+    };
+  }
+
   if (call.name === 'use_skill') {
     const name = String(result?.name ?? call.args?.name ?? '').trim().replace(/^\//, '');
     return {
@@ -1308,6 +1330,14 @@ export function buildTranscriptFromSessionHistory(
   const entries: TranscriptEntryDraft[] = [];
   const pendingCalls = new Map<string, ToolCall>();
   const pendingUserInputRequests = new Map<string, UserInputQuestion[]>();
+  let turnMemory: string[] = [];
+  let turnResponse: TranscriptEntryDraft | null = null;
+  const settleTurnMemory = () => {
+    const note = memoryUpdatedNote(turnMemory);
+    if (note && turnResponse) turnResponse.note = note;
+    turnMemory = [];
+    turnResponse = null;
+  };
   for (const entry of history) {
     if (!entry?.parts?.length) continue;
     for (const part of entry.parts) {
@@ -1359,6 +1389,11 @@ export function buildTranscriptFromSessionHistory(
       if (!call && responseName) {
         call = findPendingToolCallByName(pendingCalls, responseName);
       }
+      if (call?.name === 'remember') {
+        const saved = (functionResponse.response ?? {}) as { ok?: boolean; topic?: unknown };
+        if (saved.ok === true) turnMemory.push(String(saved.topic ?? call.args?.topic ?? '').trim());
+        continue;
+      }
       if (!call || !isFileChangeTool(call.name)) continue;
       const result = (functionResponse.response ?? {}) as { ok?: boolean; skipped?: boolean };
 
@@ -1366,6 +1401,7 @@ export function buildTranscriptFromSessionHistory(
       entries.push(buildFileChangeEntry({ call, result }));
     }
     if (entry.role === 'user' && entry.kind === 'turnStart') {
+      settleTurnMemory();
       const text = displayUserTextFromHistoryEntry(entry);
       if (text) {
         entries.push({ body: text, kind: 'user', title: 'You' });
@@ -1389,9 +1425,12 @@ export function buildTranscriptFromSessionHistory(
         });
         continue;
       }
-      entries.push({ body: text, kind: 'assistant', title: 'Response' });
+      if ((turnResponse as TranscriptEntryDraft | null)?.body === text) continue;
+      turnResponse = { body: text, kind: 'assistant', title: 'Response' };
+      entries.push(turnResponse);
     }
   }
+  settleTurnMemory();
   return entries;
 }
 
@@ -2202,6 +2241,7 @@ export async function runClientInteractive({
 
 
     let todosTouchedThisTurn = false;
+    let memoryTopicsThisTurn: string[] = [];
     const syncTodosState = () => {
       store.update((current) => ({ ...current, todos: listTodos() }));
     };
@@ -2402,7 +2442,8 @@ export async function runClientInteractive({
       responseText: string,
       shouldContinue: () => boolean = () => true,
     ): Promise<void> => {
-      const entries = buildSettledTurnTranscriptEntries(turnEntries, responseText);
+      const entries = buildSettledTurnTranscriptEntries(turnEntries, responseText, memoryTopicsThisTurn);
+      memoryTopicsThisTurn = [];
       const responseEntry = entries.at(-1);
       if (
         !responseEntry ||
@@ -2451,21 +2492,17 @@ export async function runClientInteractive({
     };
 
     const handleAppSelectionCopy = (text: string): void => {
-      try {
-        writeClipboardText(text);
-        showTransientStatus('Copied selection');
-      } catch (error: any) {
-        appendError(`Selection copy failed: ${error.message}`);
-      }
+      void writeClipboardText(text).then(
+        () => showTransientStatus('Copied selection'),
+        (error: any) => appendError(`Selection copy failed: ${error.message}`),
+      );
     };
 
     const handleLinkCopy = (url: string): void => {
-      try {
-        writeClipboardText(url);
-        showTransientStatus('Copied link');
-      } catch (error: any) {
-        appendError(`Link copy failed: ${error.message}`);
-      }
+      void writeClipboardText(url).then(
+        () => showTransientStatus('Copied link'),
+        (error: any) => appendError(`Link copy failed: ${error.message}`),
+      );
     };
 
     const handleLinkOpen = async (url: string): Promise<void> => {
@@ -2910,6 +2947,7 @@ export async function runClientInteractive({
           ...pauseBusyClock(current, Date.now()),
           ...closedJobsPickerFields(current),
           approvalCursor: getDefaultApprovalCursor(request.options.length),
+          approvalNote: '',
           approvalOpenedAt: Date.now(),
 
 
@@ -2938,12 +2976,15 @@ export async function runClientInteractive({
     const handleInlineApprovalChoice = async (index: number): Promise<void> => {
       const current = store.getState();
       const options = current.approvalPrompt?.options ?? [];
-      const chosen = options[index]?.decision ?? { kind: 'deny' as const };
+      const picked: PermissionDecision = options[index]?.decision ?? { kind: 'deny' };
+      const note = String(current.approvalNote ?? '').trim();
+      const chosen: PermissionDecision = picked.kind === 'deny' && note ? { ...picked, note } : picked;
       const pendingResolve = resolvePermissionDecision;
       resolvePermissionDecision = null;
       store.update((next) => ({
         ...resumeBusyClock(next, Date.now()),
         approvalCursor: getDefaultApprovalCursor(options.length),
+        approvalNote: '',
         approvalPrompt: null,
         approvalScrollOffset: 0,
         status: current.approvalPrompt?.returnStatus ?? next.status,
@@ -3772,6 +3813,15 @@ export async function runClientInteractive({
         return;
       }
 
+      if (input === '/memory' || input.startsWith('/memory ')) {
+        appendStaticEntry({
+          body: runMemoryCommand(input.slice('/memory'.length), session.rootDir, session.env),
+          kind: 'system',
+          title: 'Memory',
+        });
+        return;
+      }
+
       if (input === '/skills' || input.startsWith('/skills ')) {
         await runSkillsCommand(input.slice('/skills'.length).trim());
         return;
@@ -4036,6 +4086,7 @@ export async function runClientInteractive({
       activeTurnAbort = turnAbort;
       lastTurnStartedAt = turnStartedAt;
       todosTouchedThisTurn = false;
+      memoryTopicsThisTurn = [];
 
 
 
@@ -4368,6 +4419,11 @@ export async function runClientInteractive({
           return;
         }
       }
+      if (event.call.name === 'remember') {
+        const saved = event.result as { ok?: boolean; topic?: unknown } | null;
+        if (saved?.ok === true) memoryTopicsThisTurn.push(String(saved.topic ?? event.call.args?.topic ?? '').trim());
+        return;
+      }
       if (isFileChangeTool(event.call.name)) {
         const entry = buildFileChangeEntry(event);
         store.appendWorkingTool(entry);
@@ -4461,7 +4517,7 @@ export async function runClientInteractive({
     session.requestPermission = async (request) => {
       const deny = { kind: 'deny' as const };
       if (exiting) return deny;
-      if (sessionAutoYes) return { kind: 'once' as const };
+      if (sessionAutoYes && !request.alwaysAsk) return { kind: 'once' as const };
       const decision = await openApprovalPrompt(request, session.turnAbortSignal);
 
 
@@ -4489,11 +4545,30 @@ export async function runClientInteractive({
           kind: 'system',
           title: 'Approvals',
         });
+      } else if (decision.kind === 'computer' && decision.session) {
+        appendTurnAwareEntry({
+          body:
+            decision.desktop === 'background'
+              ? 'Allowed for the rest of this session: using apps in the background.'
+              : 'Allowed for the rest of this session: using apps on your screen.',
+          kind: 'system',
+          title: 'Approvals',
+        });
+      } else if (decision.kind === 'computer') {
+        appendTurnAwareEntry({
+          body:
+            decision.desktop === 'background'
+              ? 'Allowed for this request: using apps in the background.'
+              : 'Allowed for this request: using apps on your screen.',
+          kind: 'system',
+          title: 'Approvals',
+        });
       }
       return decision;
     };
 
     const shellInputHandlers = {
+      getModelPickerPageSize: () => modelPickerPageSize(store.getState(), terminalCols, terminalRows),
       getApprovalScrollLimit: () => {
         const contentWidth = frameContentWidth(terminalCols);
         return approvalScrollLimit(

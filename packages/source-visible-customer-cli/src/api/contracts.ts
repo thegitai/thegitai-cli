@@ -59,6 +59,15 @@ export interface LogoutResponse {
 
 export type ModelLock = 'plan' | 'auto-only';
 
+export interface ModelComparison {
+  intelligenceScore: number | null;
+  benchmarkLabel: string;
+  benchmarkUrl: string;
+  evaluationNote: string | null;
+  responseTimeMs: number;
+  updatedAt: string;
+}
+
 export interface ServerModelInfo {
   id: number;
   label: string;
@@ -66,10 +75,12 @@ export interface ServerModelInfo {
   description: string;
   locked?: ModelLock;
   auto?: true;
+  comparison?: ModelComparison;
 }
 
 export interface ListModelsResponse {
   models: ServerModelInfo[];
+  comparisons?: Record<number, ModelComparison>;
 }
 
 export interface ClientSessionStateSnapshot {
@@ -90,6 +101,7 @@ export interface ClientSessionSnapshot {
   modelId: number;
 
   branch?: string | null;
+  lastPromptAt?: string | null;
   history: ChatMessage[];
   clientState: ClientSessionStateSnapshot;
   serverState: Record<string, unknown>;
@@ -106,6 +118,7 @@ export interface SessionMetadata {
   lastUserMessage: string;
   summaryPreview: string;
   branch?: string | null;
+  lastPromptAt?: string | null;
 }
 
 export interface ListSessionsResponse {
@@ -156,6 +169,8 @@ export interface ClientEnvironmentContext {
 
 
   browserExtensionSeen?: boolean;
+
+  computerControl?: boolean;
 }
 
 export interface ProjectOrientationContext {
@@ -164,10 +179,38 @@ export interface ProjectOrientationContext {
   truncated: boolean;
 }
 
+export interface ProjectInstructionFile {
+  name: string;
+  content: string;
+  shownLines: number;
+  truncated: boolean;
+}
+
+export type MemoryScope = 'personal' | 'project';
+
+export type MemoryTopicType = 'preference' | 'correction' | 'fact' | 'decision';
+
+export interface MemoryTopic {
+  name: string;
+  scope: MemoryScope;
+  description: string;
+  type: MemoryTopicType;
+  created: string;
+  updated: string;
+  body?: string;
+}
+
+export interface ClientLocalClock {
+  localTime: string;
+  timeZone?: string;
+}
+
 export interface ChatTurnRequest {
   mcpTools?: McpToolDefinition[];
   skills?: SkillCatalogueEntry[];
   invokedSkill?: InvokedSkill;
+  memoryTopics?: MemoryTopic[];
+  localClock?: ClientLocalClock;
   reasoningEffort?: import('../reasoning-effort.js').ReasoningEffort;
   clientTurnId: string;
   modelId: number | null;
@@ -181,6 +224,7 @@ export interface ChatTurnRequest {
   jobFollowUp?: boolean;
   clientEnvironment?: ClientEnvironmentContext;
   projectOrientation?: ProjectOrientationContext;
+  projectInstructionFiles?: ProjectInstructionFile[];
 
 
 

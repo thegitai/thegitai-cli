@@ -17,6 +17,7 @@ import {
   sniffImageMimeType,
 } from './image-limits.js';
 import type { ImageMimeType } from '../types.js';
+import { scopedSessionId } from '../session-context.js';
 
 
 
@@ -68,32 +69,34 @@ export interface StoredSessionImage {
 let activeSessionId: string | null = null;
 
 export function setImageStoreSession(sessionId: string | null): void {
-  activeSessionId = String(sessionId ?? '').trim() || null;
-  contentIndex.clear();
+  const next = String(sessionId ?? '').trim() || null;
+  if (activeSessionId !== next && activeSessionId) contentIndexes.delete(activeSessionId);
+  activeSessionId = next;
 }
 
+function currentSession(): string | null {
+  return scopedSessionId() ?? activeSessionId;
+}
 
+const contentIndexes = new Map<string, Map<string, string>>();
 
-
-
-
-
-
-
-
-
-
-
-
-
-const contentIndex = new Map<string, string>();
+function contentIndexFor(sessionId: string): Map<string, string> {
+  let index = contentIndexes.get(sessionId);
+  if (!index) {
+    index = new Map<string, string>();
+    contentIndexes.set(sessionId, index);
+  }
+  return index;
+}
 
 function imageContentKey(base64Data: string): string {
   return createHash('sha256').update(base64Data).digest('hex');
 }
 
 function rememberStoredImage(base64Data: string, cachePath: string): void {
-  contentIndex.set(imageContentKey(base64Data), cachePath);
+  const sessionId = currentSession();
+  if (!sessionId) return;
+  contentIndexFor(sessionId).set(imageContentKey(base64Data), cachePath);
 }
 
 
@@ -104,17 +107,20 @@ function rememberStoredImage(base64Data: string, cachePath: string): void {
 export function findStoredImageByContent(
   base64Data: string,
 ): string | undefined {
-  const cachePath = contentIndex.get(imageContentKey(base64Data));
+  const sessionId = currentSession();
+  if (!sessionId) return undefined;
+  const index = contentIndexFor(sessionId);
+  const cachePath = index.get(imageContentKey(base64Data));
   if (!cachePath) return undefined;
   if (!existsSync(cachePath)) {
-    contentIndex.delete(imageContentKey(base64Data));
+    index.delete(imageContentKey(base64Data));
     return undefined;
   }
   return cachePath;
 }
 
 export function getImageStoreSession(): string | null {
-  return activeSessionId;
+  return currentSession();
 }
 
 function safeSessionDirName(sessionId: string): string {
@@ -207,10 +213,11 @@ export function tryCacheAttachmentBytes({
   mimeType: ImageMimeType;
   env?: NodeJS.ProcessEnv;
 }): { cachePath: string; index: number } | undefined {
-  if (!activeSessionId) return undefined;
+  const sessionId = currentSession();
+  if (!sessionId) return undefined;
   try {
     const stored = storeSessionImageBytes({
-      sessionId: activeSessionId,
+      sessionId,
       base64Data,
       mimeType,
       env,
@@ -233,8 +240,9 @@ export function isSessionStorePath(
   candidate: string,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (!activeSessionId) return false;
-  const dir = getSessionImageDir(activeSessionId, env);
+  const sessionId = currentSession();
+  if (!sessionId) return false;
+  const dir = getSessionImageDir(sessionId, env);
   const resolved = path.resolve(candidate);
   return (
     resolved.startsWith(dir + path.sep) && path.dirname(resolved) === dir
@@ -253,8 +261,9 @@ export function readSessionImageByIndex(
   index: number,
   env: NodeJS.ProcessEnv = process.env,
 ): StoredSessionImage | null {
-  if (!activeSessionId || !Number.isInteger(index) || index < 1) return null;
-  const dir = getSessionImageDir(activeSessionId, env);
+  const sessionId = currentSession();
+  if (!sessionId || !Number.isInteger(index) || index < 1) return null;
+  const dir = getSessionImageDir(sessionId, env);
   if (!existsSync(dir)) return null;
   try {
     for (const name of readdirSync(dir)) {
@@ -295,8 +304,9 @@ export interface SessionImageStoreContext {
 export function describeSessionImageStore(
   env: NodeJS.ProcessEnv = process.env,
 ): SessionImageStoreContext | null {
-  if (!activeSessionId) return null;
-  const dir = getSessionImageDir(activeSessionId, env);
+  const sessionId = currentSession();
+  if (!sessionId) return null;
+  const dir = getSessionImageDir(sessionId, env);
   if (!existsSync(dir)) return null;
   const indices: number[] = [];
   try {

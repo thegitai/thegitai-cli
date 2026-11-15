@@ -13,6 +13,7 @@ import type {
   ListModelsResponse as ServerModelsResponse,
   ModelLock,
   ServerModelInfo,
+  ModelComparison,
 } from './contracts.js';
 import {
   REQUEST_TIMEOUT_MS,
@@ -47,6 +48,7 @@ function sanitizeModelInfo(raw: unknown): ServerModelInfo | null {
     return null;
   }
   const locked = isModelLock(value.locked) ? value.locked : undefined;
+  const comparison = sanitizeComparison(value.comparison);
   return {
     id,
     label,
@@ -54,11 +56,34 @@ function sanitizeModelInfo(raw: unknown): ServerModelInfo | null {
     description,
     ...(locked ? { locked } : {}),
     ...(value.auto === true ? { auto: true as const } : {}),
+    ...(comparison ? { comparison } : {}),
   };
 }
 
 function isModelLock(value: unknown): value is ModelLock {
   return value === 'plan' || value === 'auto-only';
+}
+
+function sanitizeComparison(raw: unknown): ModelComparison | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  if ((value.intelligenceScore !== null &&
+      (typeof value.intelligenceScore !== 'number' || !Number.isFinite(value.intelligenceScore) ||
+        value.intelligenceScore < 0 || value.intelligenceScore > 100)) ||
+      typeof value.responseTimeMs !== 'number' || !Number.isFinite(value.responseTimeMs) ||
+      value.responseTimeMs <= 0 || typeof value.benchmarkLabel !== 'string' ||
+      typeof value.benchmarkUrl !== 'string' || !/^https?:\/\//.test(value.benchmarkUrl) ||
+      (value.evaluationNote !== null && typeof value.evaluationNote !== 'string') ||
+      typeof value.updatedAt !== 'string' || !Number.isFinite(Date.parse(value.updatedAt)))
+    return undefined;
+  return {
+    intelligenceScore: value.intelligenceScore,
+    benchmarkLabel: value.benchmarkLabel,
+    benchmarkUrl: value.benchmarkUrl,
+    evaluationNote: value.evaluationNote,
+    responseTimeMs: value.responseTimeMs,
+    updatedAt: value.updatedAt,
+  };
 }
 
 function isCostRating(value: number): value is 1 | 2 | 3 {
@@ -175,7 +200,10 @@ export async function fetchServerModels({
     if (models.length === 0) {
       throw new Error('Server returned an invalid model list.');
     }
-    return { models };
+    return { models: models.map((model) => {
+      const comparison = sanitizeComparison(data?.comparisons?.[model.id]);
+      return comparison ? { ...model, comparison } : model;
+    }) };
   }, ladder);
 }
 

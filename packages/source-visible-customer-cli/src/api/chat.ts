@@ -58,11 +58,15 @@ import {
 } from './turn-recovery.js';
 import { collectClientEnvironment } from '../client-environment.js';
 import { collectProjectOrientation } from '../project-orientation.js';
+import { collectProjectInstructionFiles } from '../project-instructions.js';
 import { collectSkillRequest } from '../skills/discovery.js';
+import { collectMemoryRequest } from '../memory/store.js';
+import { collectLocalClock } from '../local-clock.js';
 import { describeSessionImageStore } from '../core/session-image-store.js';
 import { autoAttachImages } from '../core/image-path-extractor.js';
 import { formatTurnFailureMarker } from '../turn-failure-marker.js';
 import { browserExtensionSeen, releaseBrowserAfterTurn } from '../browser/session-bridge.js';
+import { withComputerTurn } from '../tools/computer.js';
 
 export class TurnCancelledError extends Error {
   readonly name = 'TurnCancelledError';
@@ -1108,7 +1112,11 @@ async function runTurnStream({
   }
 }
 
-export async function sendServerUserMessage({
+export function sendServerUserMessage(request: Parameters<typeof sendServerUserMessageInner>[0]): ReturnType<typeof sendServerUserMessageInner> {
+  return withComputerTurn(() => sendServerUserMessageInner(request));
+}
+
+async function sendServerUserMessageInner({
   config,
   session,
   input,
@@ -1140,6 +1148,7 @@ export async function sendServerUserMessage({
   toolBudgetReached?: boolean;
   usageSummary?: ChatResultPayload['usageSummary'];
 }> {
+  if (!jobFollowUp) session.sessionLastPromptAt = new Date().toISOString();
   const autoAttach = autoAttachImages(input, session.rootDir, imageAttachments);
   const requestImageAttachments =
     autoAttach.attachments.length > 0
@@ -1159,12 +1168,17 @@ export async function sendServerUserMessage({
   for (const err of autoAttach.errors) {
     session.onStatus(`Image: ${err}`);
   }
+  const projectInstructionFiles =
+    collectProjectInstructionFiles(session.rootDir, session.clientState.safety) ??
+    undefined;
   const request: ChatTurnRequest = {
 
 
     clientTurnId: randomUUID(),
     mcpTools: await sessionMcp(session).discover(signal),
     ...collectSkillRequest(session.rootDir, session.env, jobFollowUp ? '' : requestInputBase),
+    ...collectMemoryRequest(session.rootDir, session.env),
+    localClock: collectLocalClock(),
     modelId: session.modelId,
     reasoningEffort: projectModelEffort(
       readProjectModelEfforts(session.rootDir, config.serverUrl, session.env),
@@ -1178,6 +1192,7 @@ export async function sendServerUserMessage({
     clientEnvironment: collectClientEnvironment({ env: session.env }),
     projectOrientation:
       collectProjectOrientation(session.rootDir) ?? undefined,
+    projectInstructionFiles,
 
 
 

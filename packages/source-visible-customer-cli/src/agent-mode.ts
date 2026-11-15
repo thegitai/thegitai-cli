@@ -10,7 +10,6 @@ const PLAN_MODE_TOOL_NAMES = new Set([
   'read_file',
   'grep_code',
   'read_document',
-  'analyze_image',
   'run_command',
 
 
@@ -18,6 +17,8 @@ const PLAN_MODE_TOOL_NAMES = new Set([
 
   'update_todos',
   'use_skill',
+  'remember',
+  'recall',
 
 
 

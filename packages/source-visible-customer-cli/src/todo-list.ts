@@ -1,3 +1,5 @@
+import { scopedSessionId } from './session-context.js';
+
 export type TodoStatus = 'pending' | 'in_progress' | 'completed';
 
 export interface TodoItem {
@@ -15,10 +17,14 @@ export const MAX_TODO_ITEMS = 20;
 
 export const MAX_TODO_TEXT_CHARS = 160;
 
-
-
-let items: TodoItem[] = [];
+const lists = new Map<string, TodoItem[]>();
 let activeSessionId: string | null = null;
+
+const NO_SESSION = '';
+
+function currentKey(): string {
+  return scopedSessionId() ?? activeSessionId ?? NO_SESSION;
+}
 
 const STATUS_ALIASES: Record<string, TodoStatus> = {
   pending: 'pending',
@@ -63,25 +69,27 @@ export function extractTodosArg(args: unknown): unknown {
 export function setTodoSession(sessionId: string | null): void {
   const next = String(sessionId ?? '').trim() || null;
   if (activeSessionId !== next) {
-    items = [];
+    lists.delete(activeSessionId ?? NO_SESSION);
   }
   activeSessionId = next;
 }
 
-export function listTodos(): TodoItem[] {
-  return items.map((item) => ({ ...item }));
+export function listTodos(sessionId?: string | null): TodoItem[] {
+  const key = sessionId === undefined ? currentKey() : (sessionId ?? NO_SESSION);
+  return (lists.get(key) ?? []).map((item) => ({ ...item }));
 }
 
-export function getTodoSnapshot(): TodoListSnapshot {
+export function getTodoSnapshot(sessionId?: string | null): TodoListSnapshot {
+  const items = listTodos(sessionId);
   return {
-    items: listTodos(),
+    items,
     completedCount: items.filter((item) => item.status === 'completed').length,
     totalCount: items.length,
   };
 }
 
-export function clearTodos(): void {
-  items = [];
+export function clearTodos(sessionId?: string | null): void {
+  lists.delete(sessionId === undefined ? currentKey() : (sessionId ?? NO_SESSION));
 }
 
 export type ReplaceTodosResult =
@@ -141,6 +149,6 @@ export function replaceTodos(raw: unknown): ReplaceTodosResult {
     }
     next.push({ text: boundedText, status: finalStatus });
   }
-  items = next;
+  lists.set(currentKey(), next);
   return { ok: true, snapshot: getTodoSnapshot(), normalizations };
 }

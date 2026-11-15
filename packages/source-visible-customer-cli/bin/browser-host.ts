@@ -40,11 +40,16 @@ interface SessionLink {
 
 const sessions = new Map<string, SessionLink>();
 const runtimeDir = browserRuntimeDir(process.env);
+const startedAt = Date.now();
+const YIELD_RETRY_MS = 15_000;
+const yielded = new Map<string, { key: string; at: number }>();
+let extensionGreeted = false;
 let extensionVersion = '';
 let extensionProfileId = '';
 let extensionProfileLabel = '';
 let extensionPlatform = '';
 let extensionLastFocusedAt = 0;
+let stopping = false;
 
 function log(message: string): void {
   process.stderr.write(`[thegitai-browser-host] ${message}\n`);
@@ -52,7 +57,21 @@ function log(message: string): void {
 
 
 
+function stop(code: number): void {
+  if (stopping) return;
+  stopping = true;
+  for (const link of sessions.values()) link.socket.destroy();
+  process.exit(code);
+}
+
+process.on('uncaughtException', (error) => {
+  if (!stopping) log(`stopping after an unexpected error: ${error?.stack ?? error}`);
+  stop(1);
+});
+process.stdout.on('error', () => stop(0));
+
 function writeToExtension(frame: unknown): void {
+  if (stopping) return;
   const payload = Buffer.from(JSON.stringify(frame), 'utf8');
   if (payload.length > MAX_FRAME_BYTES) {
     for (const fragment of fragmentPayload(payload, crypto.randomUUID())) {
@@ -78,12 +97,7 @@ process.stdin.on('data', (chunk: Buffer | string) => {
   for (const frame of frames) handleExtensionFrame(frame);
 });
 
-process.stdin.on('end', () => {
-
-
-  for (const link of sessions.values()) link.socket.destroy();
-  process.exit(0);
-});
+process.stdin.on('end', () => stop(0));
 
 
 
@@ -242,6 +256,7 @@ function identity() {
         : `profile ${extensionProfileId.slice(0, 6)}`),
     platform: extensionPlatform || process.platform,
     extensionVersion,
+    startedAt,
     ...(extensionLastFocusedAt > 0 ? { lastFocusedAt: extensionLastFocusedAt } : {}),
   };
 }
@@ -257,6 +272,7 @@ function handleExtensionFrame(frame: any): void {
       : '';
     extensionPlatform = String(frame.platform ?? '');
     extensionLastFocusedAt = Number(frame.lastFocusedAt) || 0;
+    extensionGreeted = true;
     writeToExtension({ t: 'hello', protocol: BROWSER_PROTOCOL_VERSION });
     publishSessions();
 
@@ -307,7 +323,9 @@ function publishSessions(): void {
 
 
 function connectToSession(record: SessionAnnouncement, socketPath: string): void {
+  const gaveWay = yielded.get(record.session);
   if (sessions.has(record.session)) return;
+  if (gaveWay?.key === browserKey() && Date.now() - gaveWay.at < YIELD_RETRY_MS) return;
   const socket = net.createConnection(socketPath);
   socket.setNoDelay(true);
   const link: SessionLink = { key: record.session, socket, record };
@@ -336,6 +354,11 @@ function connectToSession(record: SessionAnnouncement, socketPath: string): void
       }
 
 
+      if (frame?.t === 'superseded') {
+        yielded.set(record.session, { key: typeof frame.key === 'string' ? frame.key : browserKey(), at: Date.now() });
+        log(`a newer helper serves this browser in session ${record.session}`);
+        continue;
+      }
       writeToExtension({ ...frame, session: record.session });
     }
   });
@@ -356,6 +379,7 @@ function connectToSession(record: SessionAnnouncement, socketPath: string): void
 }
 
 function scanForSessions(): void {
+  if (!extensionGreeted && Date.now() - startedAt < 3000) return;
   let entries: string[];
   try {
     entries = fs.readdirSync(runtimeDir);
