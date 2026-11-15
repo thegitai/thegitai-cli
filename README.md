@@ -5,6 +5,8 @@ runs and tests it, and can use your signed-in Chrome and the apps on your
 computer to check the result. Every edit it makes can be undone without
 touching yours.
 
+[![TheGitAI: AI Coding Agent With Native Computer Control on Linux Wayland/X11 and macOS](https://img.youtube.com/vi/p_-pIIIpNXY/maxresdefault.jpg)](https://youtu.be/p_-pIIIpNXY)
+
 This package is the CLI. The same agent is also available as a
 [desktop app](https://thegit.ai/desktop), with the same account and plan.
 
